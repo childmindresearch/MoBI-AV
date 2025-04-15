@@ -33,12 +33,12 @@ uv pip install pyinstaller
 2. Create the executable with LSL support:
 
 ```bash
-python -m PyInstaller --onefile --windowed --add-data "config.json;." --add-binary "C:\Program Files\whereever_lsl_was_installed\liblsl64.dll;pylsl\lib" run.py
+python -m PyInstaller --onefile --windowed --add-binary "C:\Program Files\whereever_lsl_was_installed\liblsl64.dll;pylsl\lib" run.py
 ```
 
 3. The executable will be created in the `dist` folder
 
-4. To modify settings, edit the `config.json` file in the same folder as the executable
+4. To modify settings, copy and edit the `config.json` file in the same folder as the executable
 
 ## Usage
 
@@ -68,15 +68,15 @@ This application features Lab Streaming Layer (LSL) integration for synchronizin
 ### LSL Configuration
 
 In the `config.json` file, you can adjust the LSL settings:
-
 ```json
 "lsl_settings": {
   "audio_stream_name": "AudioMarkers",  
   "video_stream_name": "VideoMarkers",
-  "marker_sampling_rate": 0,
-  "data_sampling_rate": 100
+  "marker_sampling_rate": 0
 }
 ```
+Note: `sampling rate: 0` indicates irregular sampling rate for pylsl
+
 
 ## Configuration
 
@@ -84,10 +84,10 @@ Edit `config.json` to customize:
 
 - Default subject ID
 - Recording destination
-- Audio device preferences
+- Preferred default Audio device
 - Video resolution and frame rate
 
-Note: The `device_name` in the config will be used to pre-select the matching audio device in the dropdown menu.
+Note: The `device_name` and `preferred_sample_rate` in the config will be used to pre-select the matching audio device in the dropdown menu.
 
 ## Troubleshooting
 

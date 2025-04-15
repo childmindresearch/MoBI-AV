@@ -24,7 +24,6 @@
   "lsl_settings": {
     "audio_stream_name": "AudioMarkers",
     "video_stream_name": "VideoMarkers",
-    "marker_sampling_rate": 0,
-    "data_sampling_rate": 100
+    "marker_sampling_rate": 0
   }
 }
