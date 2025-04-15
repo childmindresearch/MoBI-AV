@@ -5,8 +5,9 @@
   "video_filename_suffix": "_video",
   "audio_settings": {
     "use_device_defaults": true,
-    "device_name": "ZoomAudioDevice",
-    "fallback_settings": {
+    "device_name": "Yeti X",
+    "preferred_sample_rate": 48000,
+      "fallback_settings": {
       "channels": 1,
       "sample_rate": 44100,
       "chunk_duration": 0.1,

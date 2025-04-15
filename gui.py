@@ -109,25 +109,46 @@ class RecorderApp(tk.Tk):
             for dev in audio_devices
         }
         self.audio_device_menu["values"] = list(self.audio_devices_map.keys())
-        
-        # Find and select the configured audio device instead of always selecting first item
+
         if self.audio_devices_map:
-            # Get the configured device name
+            # Get the configured device name and preferred sample rate
             configured_device_name = self.core.config["audio_settings"]["device_name"]
+            preferred_sample_rate = self.core.config["audio_settings"].get(
+                "preferred_sample_rate", None
+            )
             configured_device_found = False
-            
-            # Try to find and select the configured device
-            for i, device_key in enumerate(self.audio_device_menu["values"]):
-                if configured_device_name in device_key:
-                    self.audio_device_menu.current(i)
-                    configured_device_found = True
-                    self.log_message(f"Selected configured audio device: {configured_device_name}")
-                    break
-            
+
+            # First try to find a device that matches both name AND sample rate
+            if preferred_sample_rate is not None:
+                for i, device_key in enumerate(self.audio_device_menu["values"]):
+                    if (
+                        configured_device_name in device_key
+                        and f"Rate: {preferred_sample_rate}" in device_key
+                    ):
+                        self.audio_device_menu.current(i)
+                        configured_device_found = True
+                        self.log_message(
+                            f"Selected device matching name '{configured_device_name}' and sample rate {preferred_sample_rate}Hz"
+                        )
+                        break
+
+            # If no exact match, fall back to just matching the name
+            if not configured_device_found:
+                for i, device_key in enumerate(self.audio_device_menu["values"]):
+                    if configured_device_name in device_key:
+                        self.audio_device_menu.current(i)
+                        configured_device_found = True
+                        self.log_message(
+                            f"Selected device by name only: {configured_device_name}"
+                        )
+                        break
+
             # Fall back to first device if configured one not found
             if not configured_device_found:
                 self.audio_device_menu.current(0)
-                self.log_message(f"Configured audio device '{configured_device_name}' not found, using default")
+                self.log_message(
+                    f"Configured audio device '{configured_device_name}' not found, using default"
+                )
 
         # Get video devices
         video_devices = self.core.get_available_video_devices()
