@@ -6,6 +6,7 @@ recording, handling configuration, and synchronizing recordings.
 
 import os
 import json
+import sys
 import logging
 from datetime import datetime
 from lsl_utils import MarkerStreams
@@ -45,7 +46,13 @@ class RecorderCore:
             RuntimeError: If configuration cannot be loaded.
         """
         try:
-            config_path = os.path.join(os.path.dirname(__file__), "config.json")
+            # Use the executable directory when frozen; else use the script directory.
+            if getattr(sys, "frozen", False):
+                base_path = os.path.dirname(sys.executable)
+            else:
+                base_path = os.path.dirname(__file__)
+
+            config_path = os.path.join(base_path, "config.json")
             with open(config_path, "r") as f:
                 self.config = json.load(f)
             logging.info("Configuration loaded successfully")

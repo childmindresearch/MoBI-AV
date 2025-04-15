@@ -5,7 +5,7 @@
   "video_filename_suffix": "_video",
   "audio_settings": {
     "use_device_defaults": true,
-    "device_name": "Yeti X",
+    "device_name": "Microphone (Yeti X)",
     "preferred_sample_rate": 48000,
       "fallback_settings": {
       "channels": 1,
