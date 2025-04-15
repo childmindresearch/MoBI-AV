@@ -1,0 +1,29 @@
+{
+  "default_subject_id": "subject001",
+  "default_destination": "/Users/iktae.kim/Desktop/recording_check",
+  "audio_filename_suffix": "_audio",
+  "video_filename_suffix": "_video",
+  "audio_settings": {
+    "use_device_defaults": true,
+    "device_name": "ZoomAudioDevice",
+    "fallback_settings": {
+      "channels": 1,
+      "sample_rate": 44100,
+      "chunk_duration": 0.1,
+      "format": "paInt16"
+    }
+  },
+  "video_settings": {
+    "width": 640,
+    "height": 480,
+    "fps": 24,
+    "codec": "mp4v",
+    "show_timestamp": false
+  },
+  "lsl_settings": {
+    "audio_stream_name": "AudioMarkers",
+    "video_stream_name": "VideoMarkers",
+    "marker_sampling_rate": 0,
+    "data_sampling_rate": 100
+  }
+}

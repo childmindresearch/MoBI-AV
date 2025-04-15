@@ -1,0 +1,4 @@
+pyaudio
+pylsl
+numpy
+opencv-python
