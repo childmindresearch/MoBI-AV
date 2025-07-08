@@ -32,6 +32,9 @@ class RecorderApp(tk.Tk):
         # Window close handler
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # Start preview window update timer
+        self.update_preview_window()
+
         self.log_message("Application initialized")
 
     def create_input_fields(self, parent):
@@ -238,6 +241,11 @@ class RecorderApp(tk.Tk):
         )
         self.stop_video_btn.pack(fill=tk.X, pady=2)
 
+        self.preview_btn = ttk.Button(
+            video_frame, text="Toggle Preview", command=self.toggle_preview
+        )
+        self.preview_btn.pack(fill=tk.X, pady=2)
+
         # Both controls
         both_frame = ttk.LabelFrame(btn_frame, text="Both", padding="10")
         both_frame.grid(row=0, column=2, padx=5, sticky=tk.W + tk.E)
@@ -430,6 +438,42 @@ class RecorderApp(tk.Tk):
                 "Error", "Failed to stop recordings. Check the log file."
             )
 
+    def toggle_preview(self):
+        """Toggle the video preview window."""
+        # Get selected video device
+        selected_device = self.video_device_var.get()
+        device_index = self.video_devices_map.get(selected_device, 0)
+        
+        # Set the device index for the video recorder
+        if device_index is not None:
+            # Store the device index for use in preview
+            self.core.video_recorder.preview_device_index = device_index
+        
+        # Toggle the preview
+        preview_state = self.core.video_recorder.toggle_preview()
+        if preview_state:
+            self.log_message("Video preview started - separate OpenCV window will appear")
+        else:
+            self.log_message("Video preview stopped")
+
+    def update_preview_window(self):
+        """Update the OpenCV preview window from main thread."""
+        try:
+            # Check if preview is active and update the window
+            if (hasattr(self.core, 'video_recorder') and 
+                self.core.video_recorder and 
+                self.core.video_recorder.show_preview):
+                
+                # Call the video recorder's window update method
+                self.core.video_recorder.show_preview_window()
+                
+        except Exception:
+            # Silently handle errors to avoid spam
+            pass
+        
+        # Schedule next update - run at 10Hz to keep window responsive
+        self.after(100, self.update_preview_window)
+
     def on_close(self):
         """Handle window close event"""
         if self.core.recording_audio or self.core.recording_video:
@@ -441,8 +485,14 @@ class RecorderApp(tk.Tk):
                     self.core.stop_audio_recording()
                 if self.core.recording_video:
                     self.core.stop_video_recording()
+                # Stop preview if active
+                if hasattr(self.core, 'video_recorder') and self.core.video_recorder:
+                    self.core.video_recorder.stop_preview()
                 self.destroy()
         else:
+            # Stop preview if active
+            if hasattr(self.core, 'video_recorder') and self.core.video_recorder:
+                self.core.video_recorder.stop_preview()
             self.destroy()
 
 
