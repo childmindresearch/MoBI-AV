@@ -24,6 +24,9 @@ class VideoRecorder:
         video_writer: OpenCV VideoWriter object.
         video_filename: Path to the current recording file.
         actual_fps: Actual frames per second being used for recording.
+        show_preview: Boolean indicating if preview window should be shown.
+        preview_thread: Thread for preview window updates.
+        preview_active: Boolean indicating if preview thread is running.
     """
 
     def __init__(self, config, marker_streams):
@@ -41,6 +44,10 @@ class VideoRecorder:
         self.video_writer = None
         self.video_filename = None
         self.actual_fps = None
+        self.show_preview = False
+        self.preview_thread = None
+        self.preview_active = False
+        self.latest_preview_frame = None
 
     def get_available_devices(self):
         """Get a list of available video capture devices.
@@ -93,7 +100,11 @@ class VideoRecorder:
 
             # Initialize camera with specified device index
             camera_index = 0 if device_index is None else device_index
-            self.video_capture = cv2.VideoCapture(camera_index)
+            
+            # Use existing capture if preview is active, otherwise create new one
+            if not self.video_capture or not self.video_capture.isOpened():
+                self.video_capture = cv2.VideoCapture(camera_index)
+            
             self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
             self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
 
@@ -268,6 +279,10 @@ class VideoRecorder:
                     self.video_writer.write(frame)
                     frame_count += 1
 
+                    # Update preview frame if enabled
+                    if self.show_preview:
+                        self.latest_preview_frame = frame.copy()
+
                     # Log progress every 100 frames
                     if frame_count % 100 == 0:
                         elapsed = (frame_time - start_time).total_seconds()
@@ -396,7 +411,8 @@ class VideoRecorder:
                 self.video_writer.release()
                 self.video_writer = None
 
-            if self.video_capture:
+            # Don't release video_capture if preview is still active
+            if self.video_capture and not self.show_preview:
                 self.video_capture.release()
                 self.video_capture = None
 
@@ -414,3 +430,154 @@ class VideoRecorder:
             logging.error(traceback.format_exc())
             self.recording = False
             return False
+
+    def toggle_preview(self):
+        """Toggle the video preview window on/off.
+        
+        Returns:
+            Boolean indicating the new preview state.
+        """
+        if self.show_preview:
+            self.stop_preview()
+        else:
+            self.start_preview()
+        return self.show_preview
+
+    def start_preview(self):
+        """Start the video preview window."""
+        if self.preview_active:
+            return True
+            
+        # Initialize video capture if not already done
+        if not self.video_capture:
+            # Use the device index set by GUI, or default to first available
+            device_index = getattr(self, 'preview_device_index', 0)
+            if device_index is None:
+                devices = self.get_available_devices()
+                if not devices:
+                    logging.error("No video devices available for preview")
+                    return False
+                device_index = devices[0]["index"]
+                
+            self.video_capture = cv2.VideoCapture(device_index)
+            
+            if not self.video_capture.isOpened():
+                logging.error(f"Could not open video device {device_index} for preview")
+                return False
+                
+            # Set preview resolution
+            self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
+            self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
+        
+        self.show_preview = True
+        self.preview_active = True
+        
+        # Start preview thread
+        self.preview_thread = threading.Thread(target=self._preview_thread)
+        self.preview_thread.daemon = True
+        self.preview_thread.start()
+        
+        logging.info("Started video preview")
+        return True
+
+    def stop_preview(self):
+        """Stop the video preview window."""
+        if not self.preview_active:
+            return True
+            
+        self.show_preview = False
+        self.preview_active = False
+        
+        # Wait for preview thread to finish
+        if self.preview_thread and self.preview_thread.is_alive():
+            self.preview_thread.join(timeout=2.0)
+            
+        # Clean up frame reference
+        self.latest_preview_frame = None
+        
+        # Close OpenCV window
+        try:
+            cv2.destroyWindow("Video Preview")
+        except Exception:
+            pass
+            
+        # Only release capture if not recording
+        if not self.recording and self.video_capture:
+            self.video_capture.release()
+            self.video_capture = None
+            
+        logging.info("Stopped video preview")
+        return True
+
+    def _preview_thread(self):
+        """Thread function for video preview at 5fps."""
+        preview_fps = 5  # Low fps for preview to minimize impact
+        frame_interval = 1.0 / preview_fps
+        
+        while self.preview_active and self.show_preview:
+            try:
+                if self.video_capture and self.video_capture.isOpened():
+                    ret, frame = self.video_capture.read()
+                    if ret:
+                        # Resize frame for preview window
+                        display_frame = cv2.resize(frame, (640, 480))
+                        
+                        # Add status text
+                        status_text = "RECORDING" if self.recording else "PREVIEW - 5 FPS"
+                        text_color = (0, 0, 255) if self.recording else (0, 255, 0)
+                        
+                        cv2.putText(
+                            display_frame,
+                            status_text,
+                            (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            text_color,
+                            2,
+                        )
+                        
+                        # Store the frame for main thread display
+                        self.latest_preview_frame = display_frame.copy()
+                            
+                time.sleep(frame_interval)
+                
+            except Exception as e:
+                logging.error(f"Error in preview thread: {e}")
+                break
+        
+        # Clean up when thread ends
+        self.latest_preview_frame = None
+
+    def get_preview_frame(self):
+        """Get the latest preview frame for display.
+        
+        Returns:
+            OpenCV frame if available, None otherwise.
+        """
+        return self.latest_preview_frame
+
+    def show_preview_window(self):
+        """Show the preview frame in an OpenCV window.
+        
+        This should be called from the main thread to avoid macOS threading issues.
+        """
+        if self.show_preview and self.latest_preview_frame is not None:
+            cv2.imshow("Video Preview", self.latest_preview_frame)
+            
+            # Check for window close or ESC key
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:  # ESC key
+                self.stop_preview()
+                return False
+                
+            # Check if window was closed
+            try:
+                if cv2.getWindowProperty("Video Preview", cv2.WND_PROP_VISIBLE) < 1:
+                    self.stop_preview()
+                    return False
+            except cv2.error:
+                # Window was closed
+                self.stop_preview()
+                return False
+                
+        return True
