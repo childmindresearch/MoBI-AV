@@ -1,62 +1,69 @@
-"""Audio recording module for lab data collection.
-
-This module provides audio recording capabilities using PyAudio, with support
-for device selection and LSL marker synchronization.
-"""
+"""Audio recording module for lab data collection."""
 
 import os
 import wave
-import pyaudio
 import logging
 from datetime import datetime
+from typing import Dict, List, Optional, Union, Any, Tuple, cast
+
+import pyaudio  # type: ignore
 
 
 class AudioRecorder:
-    """Audio recorder supporting multiple devices and synchronized recordings.
+    """Audio recorder with multi-device and synchronized recording support.
 
     Attributes:
-        config: Audio recording configuration.
-        recording: Boolean indicating if recording is in progress.
-        audio_stream: PyAudio stream object when recording.
-        audio_p: PyAudio instance.
-        audio_frames: List of audio frame data.
-        audio_filename: Path to the current recording file.
-        actual_channels: Number of channels being used for recording.
-        actual_sample_rate: Sample rate in Hz being used for recording.
-        actual_sample_width: Sample width in bytes for the recording format.
+        config: Audio recording configuration dictionary.
+        marker_streams: LSL marker streams instance.
+        recording: Whether recording is currently in progress.
+        audio_streams: PyAudio stream objects keyed by device index.
+        audio_p: PyAudio instance for device management.
+        audio_frames: Audio frame data lists keyed by device index.
+        audio_filenames: Output file paths keyed by device index.
+        device_configs: Per-device audio settings and metadata.
+        audio_threads: Recording thread objects keyed by device index.
     """
 
-    def __init__(self, config, marker_streams):
-        """Initialize the audio recorder.
+    config: Dict[str, Any]
+    marker_streams: Any
+    recording: bool
+    audio_streams: Dict[Union[int, str], Any]
+    audio_p: Optional[pyaudio.PyAudio]
+    audio_frames: Dict[Union[int, str], List[bytes]]
+    audio_filenames: Dict[Union[int, str], str]
+    device_configs: Dict[Union[int, str], Dict[str, Any]]
+    audio_threads: Dict[Union[int, str], Any]
+
+    def __init__(self, config: Dict[str, Any], marker_streams: Any) -> None:
+        """Initialize audio recorder.
 
         Args:
-            config: Dictionary containing audio recording settings.
-            marker_streams: MarkerStreams instance for sending LSL markers.
+            config: Audio recording configuration dictionary.
+            marker_streams: LSL marker streams instance.
         """
         self.config = config
         self.marker_streams = marker_streams
         self.recording = False
-        self.audio_stream = None
-        self.audio_p = None
-        self.audio_frames = []
-        self.audio_filename = None
-        self.actual_channels = None
-        self.actual_sample_rate = None
-        self.actual_sample_width = None
+        self.audio_streams: Dict[Union[int, str], Any] = {}
+        self.audio_p: Optional[pyaudio.PyAudio] = None
+        self.audio_frames: Dict[Union[int, str], List[bytes]] = {}
+        self.audio_filenames: Dict[Union[int, str], str] = {}
+        self.device_configs: Dict[Union[int, str], Dict[str, Any]] = {}
+        self.audio_threads: Dict[Union[int, str], Any] = {}
 
-    def get_available_devices(self):
-        """Get a list of available audio input devices.
+    def get_available_devices(self) -> List[Dict[str, Union[int, str]]]:
+        """Get available audio input devices.
 
         Returns:
-            List of dictionaries containing device information.
-            Each dictionary includes: index, name, channels, sample_rate, host_api.
+            List of device dictionaries with index, name, channels, sample_rate,
+            and host_api information.
         """
         devices = []
         p = pyaudio.PyAudio()
 
         for i in range(p.get_device_count()):
             dev = p.get_device_info_by_index(i)
-            if dev["maxInputChannels"] > 0:  # Only include input devices
+            if dev["maxInputChannels"] > 0:
                 devices.append(
                     {
                         "index": i,
@@ -70,7 +77,9 @@ class AudioRecorder:
         p.terminate()
         return devices
 
-    def find_device(self, device_name, host_api):
+    def find_device(
+        self, device_name: str, host_api: list
+    ) -> Tuple[Optional[pyaudio.PyAudio], Optional[int]]:
         """Find audio device index by name and host API.
 
         Args:
@@ -106,7 +115,133 @@ class AudioRecorder:
 
         return p, device_index
 
-    def audio_callback(self, in_data, frame_count, time_info, status):
+    def _start_device_recording(
+        self, device_index: Optional[int], filename: str, pre_initialize: bool = False
+    ) -> bool:
+        """Start recording for a specific device.
+
+        Args:
+            device_index: Device index to record from (None for default).
+            filename: Output filename for this device.
+            pre_initialize: Whether to prepare but not start recording.
+
+        Returns:
+            Boolean indicating success.
+        """
+        try:
+            # Get device info if device_index is specified
+            if device_index is not None:
+                if self.audio_p is None:
+                    return False
+                device_info = self.audio_p.get_device_info_by_index(device_index)
+            else:
+                # Find default device using original logic
+                device_name = self.config.get("device_name", "Default")
+                host_api = self.config.get("host_api", [0, 1, 2, 3])
+                temp_p, temp_device_idx = self.find_device(device_name, host_api)
+                if temp_device_idx is None:
+                    return False
+                if self.audio_p is None:
+                    return False
+                device_info = self.audio_p.get_device_info_by_index(temp_device_idx)
+                device_index = temp_device_idx
+
+            use_defaults = self.config.get("use_device_defaults", False)
+
+            # Determine actual parameters based on device capabilities
+            if use_defaults:
+                # Use the device's default settings
+                device_channels = min(int(device_info["maxInputChannels"]), 2)
+                device_sample_rate = int(device_info["defaultSampleRate"])
+                chunk_duration = self.config.get("fallback_settings", {}).get(
+                    "chunk_duration", 0.1
+                )
+                format_value = pyaudio.paInt16
+            else:
+                # Use configured settings with fallbacks
+                fallback = self.config.get("fallback_settings", {})
+                requested_channels = self.config.get(
+                    "channels", fallback.get("channels", 1)
+                )
+                device_channels = min(
+                    requested_channels, int(device_info["maxInputChannels"])
+                )
+                device_sample_rate = self.config.get(
+                    "sample_rate", fallback.get("sample_rate", 44100)
+                )
+                chunk_duration = self.config.get(
+                    "chunk_duration", fallback.get("chunk_duration", 0.1)
+                )
+                format_name = self.config.get(
+                    "format", fallback.get("format", "paInt16")
+                )
+                format_value = getattr(pyaudio, format_name)
+
+            # Calculate chunk size based on sample rate
+            chunk = int(device_sample_rate * chunk_duration)
+
+            # Store format for WAV writing
+            format_map = {
+                pyaudio.paInt16: 2,
+                pyaudio.paInt24: 3,
+                pyaudio.paInt32: 4,
+                pyaudio.paFloat32: 4,
+            }
+            device_sample_width = format_map.get(format_value, 2)
+
+            # Store device-specific configuration
+            device_key = device_index if device_index is not None else "default"
+            self.device_configs[device_key] = {
+                "channels": device_channels,
+                "sample_rate": device_sample_rate,
+                "sample_width": device_sample_width,
+                "format": format_value,
+                "chunk": chunk,
+                "device_name": device_info["name"],
+            }
+
+            logging.info(
+                f"Device {device_index} ({device_info['name']}): {device_channels} channels, {device_sample_rate} Hz"
+            )
+
+            # Create audio stream but don't start it yet if in pre-initialize mode
+            if self.audio_p is None:
+                return False
+            stream = self.audio_p.open(
+                format=format_value,
+                channels=device_channels,
+                rate=device_sample_rate,
+                input=True,
+                frames_per_buffer=chunk,
+                input_device_index=device_index,
+                stream_callback=lambda in_data,
+                frame_count,
+                time_info,
+                status: self.audio_callback(
+                    in_data, frame_count, time_info, status, device_index
+                ),
+                start=not pre_initialize,  # Only start if not pre-initializing
+            )
+
+            # Store stream and initialize frames list for this device
+            self.audio_streams[device_key] = stream
+            self.audio_frames[device_key] = []
+            self.audio_filenames[device_key] = filename
+
+            return True
+
+        except Exception as e:
+            logging.error(f"Failed to start recording for device {device_index}: {e}")
+            return False
+
+    def audio_callback(
+        self,
+        in_data: bytes,
+        frame_count: int,
+        time_info: dict,
+        status: int,
+        device_index: Optional[int],
+    ) -> Tuple[bytes, int]:
         """Callback function for audio stream.
 
         Args:
@@ -114,28 +249,33 @@ class AudioRecorder:
             frame_count: Number of frames in this buffer.
             time_info: Dictionary with timing information.
             status: Status flag from PyAudio.
+            device_index: Index of the device providing this data.
 
         Returns:
             Tuple of (in_data, flag) where flag indicates if more audio is expected.
         """
         if self.recording:
-            self.audio_frames.append(in_data)
+            device_key: Union[int, str] = (
+                device_index if device_index is not None else "default"
+            )
+            if device_key in self.audio_frames:
+                self.audio_frames[device_key].append(in_data)
         return (in_data, pyaudio.paContinue)
 
     def start_recording(
         self,
-        subject_id,
-        destination,
-        device_index=None,
-        pre_initialize=False,
-        filename=None,
-    ):
+        subject_id: str,
+        destination: str,
+        device_index_or_indices: Optional[Union[int, List[int]]] = None,
+        pre_initialize: bool = False,
+        filename: Optional[str] = None,
+    ) -> bool:
         """Start audio recording or prepare for synchronized start.
 
         Args:
             subject_id: Identifier for the recording subject.
             destination: Directory path where recording will be saved.
-            device_index: Optional device index to use, otherwise uses default.
+            device_index_or_indices: Single device index, list of indices, or None.
             pre_initialize: If True, prepare recording but don't start streaming.
             filename: Optional specific filename to use instead of auto-generated one.
 
@@ -146,119 +286,91 @@ class AudioRecorder:
             logging.warning("Audio recording already in progress")
             return False
 
-        # If device_index is provided, use it directly
-        if device_index is not None:
-            self.audio_p = pyaudio.PyAudio()
-            device_idx = device_index
+        # Handle device indices - convert to list for uniform processing
+        if device_index_or_indices is None:
+            device_indices: List[Optional[int]] = [None]
+        elif isinstance(device_index_or_indices, int):
+            device_indices = [device_index_or_indices]
+        elif isinstance(device_index_or_indices, list):
+            # Cast list[int] to list[Optional[int]] for mypy (contents are ints)
+            device_indices = cast(List[Optional[int]], list(device_index_or_indices))
         else:
-            # Otherwise use the default device finding logic
-            device_name = self.config.get("device_name", "Default")
-            host_api = self.config.get("host_api", [0, 1, 2, 3])
-            self.audio_p, device_idx = self.find_device(device_name, host_api)
-
-        if not self.audio_p or device_idx is None:
+            logging.error("Invalid device indices specification type")
             return False
 
-        use_defaults = self.config.get("use_device_defaults", False)
-        device_info = self.audio_p.get_device_info_by_index(device_idx)
+        # Initialize PyAudio once
+        self.audio_p = pyaudio.PyAudio()
 
-        # Determine actual parameters based on device capabilities
-        if use_defaults:
-            # Use the device's default settings
-            self.actual_channels = min(int(device_info["maxInputChannels"]), 2)
-            self.actual_sample_rate = int(device_info["defaultSampleRate"])
-            chunk_duration = self.config.get("fallback_settings", {}).get(
-                "chunk_duration", 0.1
-            )
-            format_value = pyaudio.paInt16
-        else:
-            # Use configured settings with fallbacks
-            fallback = self.config.get("fallback_settings", {})
-            requested_channels = self.config.get(
-                "channels", fallback.get("channels", 1)
-            )
-            self.actual_channels = min(
-                requested_channels, int(device_info["maxInputChannels"])
-            )
-            self.actual_sample_rate = self.config.get(
-                "sample_rate", fallback.get("sample_rate", 44100)
-            )
-            chunk_duration = self.config.get(
-                "chunk_duration", fallback.get("chunk_duration", 0.1)
-            )
-            format_name = self.config.get("format", fallback.get("format", "paInt16"))
-            format_value = getattr(pyaudio, format_name)
+        # Clear previous data
+        self.audio_streams = {}
+        self.audio_frames = {}
+        self.audio_filenames = {}
+        self.device_configs = {}
+        self.audio_threads = {}
 
-        # Calculate chunk size based on sample rate
-        chunk = int(self.actual_sample_rate * chunk_duration)
-
-        # Store format for WAV writing
-        format_map = {
-            pyaudio.paInt16: 2,
-            pyaudio.paInt24: 3,
-            pyaudio.paInt32: 4,
-            pyaudio.paFloat32: 4,
-        }
-        self.actual_sample_width = format_map.get(format_value, 2)
-
-        try:
-            # Create audio stream but don't start it yet if in pre-initialize mode
-            self.audio_stream = self.audio_p.open(
-                format=format_value,
-                channels=self.actual_channels,
-                rate=self.actual_sample_rate,
-                input=True,
-                frames_per_buffer=chunk,
-                input_device_index=device_idx,
-                stream_callback=self.audio_callback,
-                start=not pre_initialize,  # Only start if not pre-initializing
-            )
-
-            # Clear previous frames
-            self.audio_frames = []
-
-            # Create destination folder if it doesn't exist
-            os.makedirs(destination, exist_ok=True)
-
-            # Use provided filename or generate one based on subject_id and timestamp
-            if filename:
-                self.audio_filename = filename
-            else:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                suffix = self.config.get("filename_suffix", "_audio")
-                self.audio_filename = os.path.join(
-                    destination, f"{subject_id}{suffix}_{timestamp}.wav"
+        success_count = 0
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        for device_index in device_indices:
+            try:
+                device_name = "default"
+                if device_index is not None and self.audio_p is not None:
+                    device_info = self.audio_p.get_device_info_by_index(device_index)
+                    device_name = (
+                        "".join(
+                            c
+                            for c in device_info["name"]
+                            if c.isalnum() or c in (" ", "-", "_")
+                        )
+                        .strip()
+                        .replace(" ", "_")
+                    )
+                os.makedirs(destination, exist_ok=True)
+                if filename and len(device_indices) == 1:
+                    device_filename = filename
+                elif len(device_indices) > 1:
+                    device_filename = os.path.join(
+                        destination, f"{subject_id}_{device_name}_{timestamp}.wav"
+                    )
+                else:
+                    suffix = self.config.get("filename_suffix", "_audio")
+                    device_filename = os.path.join(
+                        destination, f"{subject_id}{suffix}_{timestamp}.wav"
+                    )
+                if self._start_device_recording(
+                    device_index, device_filename, pre_initialize
+                ):
+                    success_count += 1
+                    logging.info(
+                        f"Started recording from device {device_index or 'default'}: {device_filename}"
+                    )
+                else:
+                    logging.error(
+                        f"Failed to start recording from device {device_index or 'default'}"
+                    )
+            except Exception as e:  # noqa: BLE001
+                logging.error(
+                    f"Error starting recording for device {device_index}: {e}"
                 )
-
-            # Only set recording flag and send marker if not pre-initializing
+        if success_count > 0:
+            self.recording = not pre_initialize
             if not pre_initialize:
-                self.recording = True
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                first_filename = next(iter(self.audio_filenames.values()))
+                first_device_key = next(iter(self.device_configs.keys()))
+                first_device_config = self.device_configs[first_device_key]
                 self.marker_streams.send_audio_start_marker(
                     subject_id,
-                    self.audio_filename,
+                    first_filename,
                     timestamp,
-                    self.actual_channels,
-                    self.actual_sample_rate,
+                    first_device_config["channels"],
+                    first_device_config["sample_rate"],
                 )
-                logging.info(
-                    f"Started audio recording: {self.audio_filename} with "
-                    f"{self.actual_channels} channels at {self.actual_sample_rate} Hz"
-                )
-            else:
-                logging.info(
-                    f"Pre-initialized audio recording setup for: {self.audio_filename}"
-                )
-
             return True
+        if self.audio_p:
+            self.audio_p.terminate()
+        logging.error("Failed to start recording on any device")
+        return False
 
-        except Exception as e:
-            logging.error(f"Failed to start audio recording: {e}")
-            if self.audio_p:
-                self.audio_p.terminate()
-            return False
-
-    def start_pre_initialized(self, subject_id):
+    def start_pre_initialized(self, subject_id: str) -> bool:
         """Start a pre-initialized audio recording.
 
         Args:
@@ -267,34 +379,52 @@ class AudioRecorder:
         Returns:
             Boolean indicating success or failure.
         """
-        if not hasattr(self, "audio_stream") or self.audio_stream is None:
+        if not self.audio_streams:
             logging.error("No pre-initialized audio recording to start")
             return False
 
-        # Start the stream
-        self.audio_stream.start_stream()
-        self.recording = True
+        success_count = 0
 
-        # Record exact start time for synchronization
-        start_time = datetime.now()
-        timestamp = start_time.strftime("%Y%m%d_%H%M%S")
-        iso_timestamp = start_time.isoformat()
+        # Start all pre-initialized streams
+        for device_key, stream in self.audio_streams.items():
+            try:
+                stream.start_stream()
+                success_count += 1
+            except Exception as e:
+                logging.error(
+                    f"Failed to start pre-initialized stream for device {device_key}: {e}"
+                )
 
-        # Send marker with precise timestamp
-        self.marker_streams.send_audio_start_marker(
-            subject_id,
-            self.audio_filename,
-            timestamp,
-            self.actual_channels,
-            self.actual_sample_rate,
-            iso_timestamp,
-        )
+        if success_count > 0:
+            self.recording = True
 
-        logging.info(f"Started pre-initialized audio recording at {iso_timestamp}")
-        return True
+            # Record exact start time for synchronization
+            start_time = datetime.now()
+            timestamp = start_time.strftime("%Y%m%d_%H%M%S")
+            iso_timestamp = start_time.isoformat()
 
-    def stop_recording(self):
-        """Stop audio recording and save to WAV file.
+            # Send marker with precise timestamp using first device
+            first_filename = next(iter(self.audio_filenames.values()))
+            first_device_key = next(iter(self.device_configs.keys()))
+            first_device_config = self.device_configs[first_device_key]
+
+            self.marker_streams.send_audio_start_marker(
+                subject_id,
+                first_filename,
+                timestamp,
+                first_device_config["channels"],
+                first_device_config["sample_rate"],
+                iso_timestamp,
+            )
+
+            logging.info(f"Started pre-initialized audio recording at {iso_timestamp}")
+            return True
+        else:
+            logging.error("Failed to start any pre-initialized audio streams")
+            return False
+
+    def stop_recording(self) -> bool:
+        """Stop audio recording and save to WAV file(s).
 
         Returns:
             Boolean indicating success or failure.
@@ -304,26 +434,51 @@ class AudioRecorder:
             return False
 
         try:
-            # Stop the stream
-            self.audio_stream.stop_stream()
-            self.audio_stream.close()
-            self.audio_p.terminate()
-
-            # Save to WAV file with the actual parameters used
-            wf = wave.open(self.audio_filename, "wb")
-            wf.setnchannels(self.actual_channels)
-            wf.setsampwidth(self.actual_sample_width)
-            wf.setframerate(self.actual_sample_rate)
-            wf.writeframes(b"".join(self.audio_frames))
-            wf.close()
-
-            # Send marker to LSL
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.marker_streams.send_audio_stop_marker(self.audio_filename, timestamp)
-
             self.recording = False
-            logging.info(f"Stopped audio recording: {self.audio_filename}")
-            return True
+            success_count = 0
+
+            # Stop and save each device's recording
+            for device_key, stream in self.audio_streams.items():
+                device_key_typed: Union[int, str] = cast(Union[int, str], device_key)
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                    device_config = self.device_configs[device_key_typed]
+                    filename = self.audio_filenames[device_key_typed]
+                    frames = self.audio_frames[device_key_typed]
+                    wf = wave.open(filename, "wb")
+                    wf.setnchannels(device_config["channels"])
+                    wf.setsampwidth(device_config["sample_width"])
+                    wf.setframerate(device_config["sample_rate"])
+                    wf.writeframes(b"".join(frames))
+                    wf.close()
+                    logging.info(
+                        f"Stopped audio recording: {filename} ({device_config['device_name']}, {device_config['sample_rate']} Hz)"
+                    )
+                    success_count += 1
+                except Exception as e:  # noqa: BLE001
+                    logging.error(
+                        f"Error stopping recording for device {device_key}: {e}"
+                    )
+
+            # Terminate PyAudio
+            if self.audio_p:
+                self.audio_p.terminate()
+
+            # Send marker to LSL if at least one recording succeeded
+            if success_count > 0:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                first_filename = next(iter(self.audio_filenames.values()))
+                self.marker_streams.send_audio_stop_marker(first_filename, timestamp)
+
+            # Clear data structures
+            self.audio_streams = {}
+            self.audio_frames = {}
+            self.audio_filenames = {}
+            self.device_configs = {}
+            self.audio_threads = {}
+
+            return success_count > 0
 
         except Exception as e:
             logging.error(f"Failed to stop audio recording: {e}")

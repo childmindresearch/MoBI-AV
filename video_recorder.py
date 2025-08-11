@@ -5,11 +5,12 @@ for device selection and LSL marker synchronization.
 """
 
 import os
-import cv2
+import cv2  # type: ignore[import-not-found, import-untyped]
 import logging
 import threading
 import time
 from datetime import datetime
+from typing import Dict, List, Optional, Any
 
 
 class VideoRecorder:
@@ -29,7 +30,20 @@ class VideoRecorder:
         preview_active: Boolean indicating if preview thread is running.
     """
 
-    def __init__(self, config, marker_streams):
+    config: Dict[str, Any]
+    marker_streams: Any
+    recording: bool
+    thread_active: bool
+    video_capture: Optional[cv2.VideoCapture]
+    video_writer: Optional[cv2.VideoWriter]
+    video_filename: Optional[str]
+    actual_fps: Optional[float]
+    show_preview: bool
+    preview_thread: Optional[threading.Thread]
+    preview_active: bool
+    latest_preview_frame: Optional[Any]
+
+    def __init__(self, config: Dict[str, Any], marker_streams: Any) -> None:
         """Initialize the video recorder.
 
         Args:
@@ -49,7 +63,7 @@ class VideoRecorder:
         self.preview_active = False
         self.latest_preview_frame = None
 
-    def get_available_devices(self):
+    def get_available_devices(self) -> List[Dict[str, Any]]:
         """Get a list of available video capture devices.
 
         Returns:
@@ -58,26 +72,42 @@ class VideoRecorder:
         """
         devices = []
 
-        # On macOS, often just device 0 works
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
-            devices.append({"index": 0, "name": "Default Camera"})
-            cap.release()
+        # Try to detect multiple cameras by testing indices 0-5
+        for i in range(6):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                # Try to read a frame to confirm it's working
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    # Get some basic info about the camera
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = int(cap.get(cv2.CAP_PROP_FPS))
+
+                    if i == 0:
+                        name = f"Camera 0 (Default) - {width}x{height}@{fps}fps"
+                    else:
+                        name = f"Camera {i} - {width}x{height}@{fps}fps"
+
+                    devices.append({"index": i, "name": name})
+                    logging.info(f"Found video device {i}: {name}")
+                cap.release()
 
         # Add a fallback option if no cameras detected
         if not devices:
             devices.append({"index": 0, "name": "Default Camera (may not work)"})
+            logging.warning("No video devices detected, added fallback option")
 
         return devices
 
     def start_recording(
         self,
-        subject_id,
-        destination,
-        device_index=None,
-        pre_initialize=False,
-        filename=None,
-    ):
+        subject_id: str,
+        destination: str,
+        device_index: Optional[int] = None,
+        pre_initialize: bool = False,
+        filename: Optional[str] = None,
+    ) -> bool:
         """Start video recording or prepare for synchronized start.
 
         Args:
@@ -100,11 +130,11 @@ class VideoRecorder:
 
             # Initialize camera with specified device index
             camera_index = 0 if device_index is None else device_index
-            
+
             # Use existing capture if preview is active, otherwise create new one
             if not self.video_capture or not self.video_capture.isOpened():
                 self.video_capture = cv2.VideoCapture(camera_index)
-            
+
             self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
             self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
 
@@ -202,7 +232,7 @@ class VideoRecorder:
                 self.video_capture.release()
             return False
 
-    def start_pre_initialized(self, subject_id):
+    def start_pre_initialized(self, subject_id: str) -> bool:
         """Start a pre-initialized video recording.
 
         Args:
@@ -236,151 +266,124 @@ class VideoRecorder:
         logging.info(f"Started pre-initialized video recording at {iso_timestamp}")
         return True
 
-    def _recording_thread(self):
+    def _recording_thread(self) -> None:
         """Thread function for continuous video recording.
 
         This method runs in a separate thread and continuously reads frames
         from the camera and writes them to the video file until stopped.
         """
+        # Guard required resources for type checking
+        if self.video_capture is None or self.video_writer is None:
+            logging.error("Video resources not initialized")
+            return
+        if self.actual_fps is None:
+            self.actual_fps = float(self.config.get("fps", 30))
+        target_fps: float = float(self.actual_fps)
+        frame_time_ms = 1000.0 / target_fps if target_fps > 0 else 0.0
         frame_count = 0
         start_time = datetime.now()
-
-        # For timing analysis
-        frame_times = []
-
-        # Calculate target frame timing
-        target_fps = self.actual_fps
-        frame_time_ms = 1000.0 / target_fps  # Time per frame in milliseconds
+        frame_times: List[datetime] = []
 
         while self.thread_active and self.recording:
+            if self.video_capture is None or self.video_writer is None:
+                break
             frame_start = datetime.now()
-
             try:
                 ret, frame = self.video_capture.read()
-                if ret:
-                    # Record frame timestamp for synchronization analysis
+                if ret and frame is not None:
                     frame_time = datetime.now()
                     frame_times.append(frame_time)
-
-                    # Add timestamp overlay to frame if enabled
                     if self.config.get("show_timestamp", False):
-                        timestamp = frame_time.strftime("%H:%M:%S.%f")[:-3]
-                        frame_info = f"Frame: {frame_count} | {timestamp}"
+                        ts = frame_time.strftime("%H:%M:%S.%f")[:-3]
+                        info = f"Frame: {frame_count} | {ts}"
                         cv2.putText(
                             frame,
-                            frame_info,
+                            info,
                             (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.7,
                             (0, 255, 0),
                             2,
                         )
-
                     self.video_writer.write(frame)
                     frame_count += 1
-
-                    # Update preview frame if enabled
                     if self.show_preview:
                         self.latest_preview_frame = frame.copy()
-
-                    # Log progress every 100 frames
                     if frame_count % 100 == 0:
                         elapsed = (frame_time - start_time).total_seconds()
-                        fps = frame_count / elapsed if elapsed > 0 else 0
+                        fps = frame_count / elapsed if elapsed > 0 else 0.0
                         logging.info(
                             f"Video recording: {frame_count} frames, {fps:.2f} fps"
                         )
-
-                    # Calculate time used and sleep if needed to maintain frame rate
                     frame_end = datetime.now()
-                    process_time = (frame_end - frame_start).total_seconds() * 1000
-                    sleep_time = max(0, frame_time_ms - process_time)
-
+                    process_time = (frame_end - frame_start).total_seconds() * 1000.0
+                    sleep_time = max(0.0, frame_time_ms - process_time)
                     if sleep_time > 0:
-                        time.sleep(sleep_time / 1000.0)  # Convert back to seconds
-
+                        time.sleep(sleep_time / 1000.0)
                 else:
-                    # Try to recover from frame capture failure
-                    logging.warning(
-                        "Failed to capture video frame, attempting to recover"
-                    )
-                    time.sleep(0.01)  # Short sleep to give camera time to recover
+                    logging.warning("Failed to capture video frame, attempting recover")
+                    time.sleep(0.01)
                     recover_attempts = 0
-                    max_attempts = 30  # Try for about 0.3 seconds before giving up
-
-                    while recover_attempts < max_attempts and self.thread_active:
+                    max_attempts = 30
+                    while (
+                        recover_attempts < max_attempts
+                        and self.thread_active
+                        and self.video_capture is not None
+                        and self.video_writer is not None
+                    ):
                         ret, frame = self.video_capture.read()
-                        if ret:
-                            # Record recovery frame timestamp
+                        if ret and frame is not None:
                             frame_time = datetime.now()
                             frame_times.append(frame_time)
-
-                            # Add timestamp overlay to frame if enabled
                             if self.config.get("show_timestamp", False):
-                                timestamp = frame_time.strftime("%H:%M:%S.%f")[:-3]
-                                frame_info = (
-                                    f"Frame: {frame_count} | {timestamp} (recovered)"
-                                )
+                                ts = frame_time.strftime("%H:%M:%S.%f")[:-3]
+                                info = f"Frame: {frame_count} | {ts} (recovered)"
                                 cv2.putText(
                                     frame,
-                                    frame_info,
+                                    info,
                                     (10, 30),
                                     cv2.FONT_HERSHEY_SIMPLEX,
                                     0.7,
                                     (0, 255, 0),
                                     2,
                                 )
-
                             self.video_writer.write(frame)
                             frame_count += 1
                             break
                         time.sleep(0.01)
                         recover_attempts += 1
-
                     if recover_attempts >= max_attempts:
-                        logging.error(
-                            "Failed to recover video recording after multiple attempts"
-                        )
+                        logging.error("Failed to recover video recording")
                         break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logging.error(f"Error in video recording thread: {e}")
-                import traceback
-
-                logging.error(traceback.format_exc())
                 break
-
-        # At end of recording, calculate timing statistics
-        if frame_times:
-            first_frame_delay = (frame_times[0] - self.video_start_time).total_seconds()
+        if frame_times and hasattr(self, "video_start_time"):
+            first_delay = (frame_times[0] - self.video_start_time).total_seconds()
             avg_interval = (
                 (frame_times[-1] - frame_times[0]).total_seconds()
                 / (len(frame_times) - 1)
                 if len(frame_times) > 1
-                else 0
+                else 0.0
             )
-            actual_fps = 1.0 / avg_interval if avg_interval > 0 else 0
-
+            actual_fps = 1.0 / avg_interval if avg_interval > 0 else 0.0
             logging.info(
-                f"Video statistics: first frame delay={first_frame_delay:.3f}s, "
-                f"actual fps={actual_fps:.2f}"
+                f"Video statistics: first frame delay={first_delay:.3f}s, actual fps={actual_fps:.2f}"
             )
-
-        # Log final statistics
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         expected_frames = target_fps * duration
         frame_difference = expected_frames - frame_count
-
         logging.info(f"Video recording thread ended after {duration:.2f} seconds")
         logging.info(
-            f"Captured {frame_count} frames (expected ~{int(expected_frames)}, "
-            f"difference: {int(frame_difference)})"
+            f"Captured {frame_count} frames (expected ~{int(expected_frames)}, difference: {int(frame_difference)})"
         )
-        logging.info(
-            f"Average FPS: {frame_count / duration:.2f} (target: {target_fps})"
-        )
+        if duration > 0:
+            logging.info(
+                f"Average FPS: {frame_count / duration:.2f} (target: {target_fps})"
+            )
 
-    def stop_recording(self):
+    def stop_recording(self) -> bool:
         """Stop video recording and release resources.
 
         Returns:
@@ -431,9 +434,9 @@ class VideoRecorder:
             self.recording = False
             return False
 
-    def toggle_preview(self):
+    def toggle_preview(self) -> bool:
         """Toggle the video preview window on/off.
-        
+
         Returns:
             Boolean indicating the new preview state.
         """
@@ -443,77 +446,77 @@ class VideoRecorder:
             self.start_preview()
         return self.show_preview
 
-    def start_preview(self):
+    def start_preview(self) -> bool:
         """Start the video preview window."""
         if self.preview_active:
             return True
-            
+
         # Initialize video capture if not already done
         if not self.video_capture:
             # Use the device index set by GUI, or default to first available
-            device_index = getattr(self, 'preview_device_index', 0)
+            device_index = getattr(self, "preview_device_index", 0)
             if device_index is None:
                 devices = self.get_available_devices()
                 if not devices:
                     logging.error("No video devices available for preview")
                     return False
                 device_index = devices[0]["index"]
-                
+
             self.video_capture = cv2.VideoCapture(device_index)
-            
+
             if not self.video_capture.isOpened():
                 logging.error(f"Could not open video device {device_index} for preview")
                 return False
-                
+
             # Set preview resolution
             self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
             self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
-        
+
         self.show_preview = True
         self.preview_active = True
-        
+
         # Start preview thread
         self.preview_thread = threading.Thread(target=self._preview_thread)
         self.preview_thread.daemon = True
         self.preview_thread.start()
-        
+
         logging.info("Started video preview")
         return True
 
-    def stop_preview(self):
+    def stop_preview(self) -> bool:
         """Stop the video preview window."""
         if not self.preview_active:
             return True
-            
+
         self.show_preview = False
         self.preview_active = False
-        
+
         # Wait for preview thread to finish
         if self.preview_thread and self.preview_thread.is_alive():
             self.preview_thread.join(timeout=2.0)
-            
+
         # Clean up frame reference
         self.latest_preview_frame = None
-        
+
         # Close OpenCV window
         try:
             cv2.destroyWindow("Video Preview")
         except Exception:
             pass
-            
+
         # Only release capture if not recording
         if not self.recording and self.video_capture:
             self.video_capture.release()
             self.video_capture = None
-            
+
         logging.info("Stopped video preview")
         return True
 
-    def _preview_thread(self):
+    def _preview_thread(self) -> None:
         """Thread function for video preview at 5fps."""
         preview_fps = 5  # Low fps for preview to minimize impact
         frame_interval = 1.0 / preview_fps
-        
+
         while self.preview_active and self.show_preview:
             try:
                 if self.video_capture and self.video_capture.isOpened():
@@ -521,11 +524,13 @@ class VideoRecorder:
                     if ret:
                         # Resize frame for preview window
                         display_frame = cv2.resize(frame, (640, 480))
-                        
+
                         # Add status text
-                        status_text = "RECORDING" if self.recording else "PREVIEW - 5 FPS"
+                        status_text = (
+                            "RECORDING" if self.recording else "PREVIEW - 5 FPS"
+                        )
                         text_color = (0, 0, 255) if self.recording else (0, 255, 0)
-                        
+
                         cv2.putText(
                             display_frame,
                             status_text,
@@ -535,41 +540,41 @@ class VideoRecorder:
                             text_color,
                             2,
                         )
-                        
+
                         # Store the frame for main thread display
                         self.latest_preview_frame = display_frame.copy()
-                            
+
                 time.sleep(frame_interval)
-                
+
             except Exception as e:
                 logging.error(f"Error in preview thread: {e}")
                 break
-        
+
         # Clean up when thread ends
         self.latest_preview_frame = None
 
-    def get_preview_frame(self):
+    def get_preview_frame(self) -> Optional[Any]:
         """Get the latest preview frame for display.
-        
+
         Returns:
             OpenCV frame if available, None otherwise.
         """
         return self.latest_preview_frame
 
-    def show_preview_window(self):
+    def show_preview_window(self) -> Optional[bool]:
         """Show the preview frame in an OpenCV window.
-        
+
         This should be called from the main thread to avoid macOS threading issues.
         """
         if self.show_preview and self.latest_preview_frame is not None:
             cv2.imshow("Video Preview", self.latest_preview_frame)
-            
+
             # Check for window close or ESC key
             key = cv2.waitKey(1) & 0xFF
             if key == 27:  # ESC key
                 self.stop_preview()
                 return False
-                
+
             # Check if window was closed
             try:
                 if cv2.getWindowProperty("Video Preview", cv2.WND_PROP_VISIBLE) < 1:
@@ -579,5 +584,5 @@ class VideoRecorder:
                 # Window was closed
                 self.stop_preview()
                 return False
-                
+
         return True
