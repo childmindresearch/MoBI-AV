@@ -5,8 +5,9 @@ including marker stream creation and standardized marker formatting.
 """
 
 import socket
-from pylsl import StreamInfo, StreamOutlet
+from pylsl import StreamInfo, StreamOutlet  # type: ignore[import-untyped]
 import logging
+from typing import Dict, Optional
 
 
 class MarkerStreams:
@@ -17,7 +18,10 @@ class MarkerStreams:
         video_marker_outlet: StreamOutlet for video recording markers.
     """
 
-    def __init__(self, config):
+    audio_marker_outlet: StreamOutlet
+    video_marker_outlet: StreamOutlet
+
+    def __init__(self, config: Dict) -> None:
         """Initialize LSL marker streams based on provided configuration.
 
         Args:
@@ -28,7 +32,7 @@ class MarkerStreams:
         """
         try:
             # Get LSL sampling rates from config
-            marker_rate = config.get("marker_sampling_rate", 0)
+            marker_rate: int = config.get("marker_sampling_rate", 0)
 
             # Audio marker outlet
             audio_info = StreamInfo(
@@ -57,8 +61,14 @@ class MarkerStreams:
             raise RuntimeError(f"Failed to create LSL outlets: {e}")
 
     def send_audio_start_marker(
-        self, subject_id, filename, timestamp, channels, sample_rate, iso_timestamp=None
-    ):
+        self,
+        subject_id: str,
+        filename: str,
+        timestamp: str,
+        channels: int,
+        sample_rate: int,
+        iso_timestamp: Optional[str] = None,
+    ) -> None:
         """Send audio recording start marker to LSL.
 
         Args:
@@ -76,7 +86,7 @@ class MarkerStreams:
 
         self.audio_marker_outlet.push_sample([marker])
 
-    def send_audio_stop_marker(self, filename, timestamp):
+    def send_audio_stop_marker(self, filename: str, timestamp: str) -> None:
         """Send audio recording stop marker to LSL.
 
         Args:
@@ -87,8 +97,13 @@ class MarkerStreams:
         self.audio_marker_outlet.push_sample([marker])
 
     def send_video_start_marker(
-        self, subject_id, filename, timestamp, iso_timestamp, fps
-    ):
+        self,
+        subject_id: str,
+        filename: str,
+        timestamp: str,
+        iso_timestamp: str,
+        fps: float,
+    ) -> None:
         """Send video recording start marker to LSL.
 
         Args:
@@ -103,7 +118,7 @@ class MarkerStreams:
         )
         self.video_marker_outlet.push_sample([marker])
 
-    def send_video_stop_marker(self, filename, timestamp):
+    def send_video_stop_marker(self, filename: str, timestamp: str) -> None:
         """Send video recording stop marker to LSL.
 
         Args:

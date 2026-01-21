@@ -9,6 +9,8 @@ import json
 import sys
 import logging
 from datetime import datetime
+from typing import Dict, Any, List, Optional, Union
+
 from lsl_utils import MarkerStreams
 from audio_recorder import AudioRecorder
 from video_recorder import VideoRecorder
@@ -17,10 +19,6 @@ from video_recorder import VideoRecorder
 class RecorderCore:
     """Core class that coordinates audio and video recording functionality.
 
-    This class loads configuration, initializes audio and video recorders,
-    and provides methods for starting and stopping recordings individually
-    or together with synchronization.
-
     Attributes:
         config: Dictionary of configuration settings.
         marker_streams: LSL marker streams for audio and video.
@@ -28,7 +26,12 @@ class RecorderCore:
         video_recorder: VideoRecorder instance.
     """
 
-    def __init__(self):
+    config: Dict[str, Any]
+    marker_streams: Any
+    audio_recorder: Any
+    video_recorder: Any
+
+    def __init__(self) -> None:
         """Initialize the RecorderCore with configuration and components."""
         self.load_config()
         self.marker_streams = MarkerStreams(self.config["lsl_settings"])
@@ -39,7 +42,7 @@ class RecorderCore:
             self.config["video_settings"], self.marker_streams
         )
 
-    def load_config(self):
+    def load_config(self) -> None:
         """Load configuration from config.json.
 
         Raises:
@@ -92,7 +95,7 @@ class RecorderCore:
             }
 
     @property
-    def recording_audio(self):
+    def recording_audio(self) -> bool:
         """Check if audio recording is in progress.
 
         Returns:
@@ -103,7 +106,7 @@ class RecorderCore:
         )
 
     @property
-    def recording_video(self):
+    def recording_video(self) -> bool:
         """Check if video recording is in progress.
 
         Returns:
@@ -113,7 +116,7 @@ class RecorderCore:
             self.video_recorder.recording if hasattr(self, "video_recorder") else False
         )
 
-    def get_available_audio_devices(self):
+    def get_available_audio_devices(self) -> List[Dict[str, Any]]:
         """Get list of available audio devices.
 
         Returns:
@@ -121,7 +124,7 @@ class RecorderCore:
         """
         return self.audio_recorder.get_available_devices()
 
-    def get_available_video_devices(self):
+    def get_available_video_devices(self) -> List[Dict[str, Any]]:
         """Get list of available video devices.
 
         Returns:
@@ -130,24 +133,28 @@ class RecorderCore:
         return self.video_recorder.get_available_devices()
 
     def start_audio_recording(
-        self, subject_id, destination, device_index=None, pre_initialize=False
-    ):
+        self,
+        subject_id: str,
+        destination: str,
+        device_index_or_indices: Optional[Union[int, List[int]]] = None,
+        pre_initialize: bool = False,
+    ) -> bool:
         """Start audio recording or prepare for synchronized start.
 
         Args:
             subject_id: Identifier for the recording subject.
             destination: Directory path where recording will be saved.
-            device_index: Optional specific device to use.
+            device_index_or_indices: Single device index, list of indices, or None.
             pre_initialize: If True, prepare but don't actually start recording.
 
         Returns:
             Boolean indicating success or failure.
         """
         return self.audio_recorder.start_recording(
-            subject_id, destination, device_index, pre_initialize
+            subject_id, destination, device_index_or_indices, pre_initialize
         )
 
-    def stop_audio_recording(self):
+    def stop_audio_recording(self) -> bool:
         """Stop audio recording and save to file.
 
         Returns:
@@ -156,8 +163,12 @@ class RecorderCore:
         return self.audio_recorder.stop_recording()
 
     def start_video_recording(
-        self, subject_id, destination, device_index=None, pre_initialize=False
-    ):
+        self,
+        subject_id: str,
+        destination: str,
+        device_index: Optional[int] = None,
+        pre_initialize: bool = False,
+    ) -> bool:
         """Start video recording or prepare for synchronized start.
 
         Args:
@@ -173,7 +184,7 @@ class RecorderCore:
             subject_id, destination, device_index, pre_initialize
         )
 
-    def stop_video_recording(self):
+    def stop_video_recording(self) -> bool:
         """Stop video recording and save to file.
 
         Returns:
@@ -181,7 +192,7 @@ class RecorderCore:
         """
         return self.video_recorder.stop_recording()
 
-    def start_pre_initialized_audio(self, subject_id):
+    def start_pre_initialized_audio(self, subject_id: str) -> bool:
         """Start a pre-initialized audio recording.
 
         Args:
@@ -192,7 +203,7 @@ class RecorderCore:
         """
         return self.audio_recorder.start_pre_initialized(subject_id)
 
-    def start_pre_initialized_video(self, subject_id):
+    def start_pre_initialized_video(self, subject_id: str) -> bool:
         """Start a pre-initialized video recording.
 
         Args:
@@ -204,14 +215,18 @@ class RecorderCore:
         return self.video_recorder.start_pre_initialized(subject_id)
 
     def start_both_recordings(
-        self, subject_id, destination, audio_device_index=None, video_device_index=None
-    ):
+        self,
+        subject_id: str,
+        destination: str,
+        audio_device_indices: Optional[Union[int, List[int]]] = None,
+        video_device_index: Optional[int] = None,
+    ) -> bool:
         """Start both audio and video recordings with synchronized start times.
 
         Args:
             subject_id: Identifier for the recording subject.
             destination: Directory path where recordings will be saved.
-            audio_device_index: Optional specific audio device to use.
+            audio_device_indices: List of audio device indices or single index.
             video_device_index: Optional specific video device to use.
 
         Returns:
@@ -228,12 +243,27 @@ class RecorderCore:
             # Create destination folder if it doesn't exist
             os.makedirs(destination, exist_ok=True)
 
+            # Handle audio device indices - ensure it's a list
+            if audio_device_indices is None:
+                audio_indices = None
+            elif isinstance(audio_device_indices, int):
+                audio_indices = [audio_device_indices]
+            else:
+                audio_indices = audio_device_indices
+
             # Create synchronized filenames
             audio_suffix = self.config["audio_filename_suffix"]
             video_suffix = self.config["video_filename_suffix"]
-            audio_filename = os.path.join(
-                destination, f"{subject_id}{audio_suffix}_{common_timestamp}.wav"
-            )
+
+            # For multiple audio devices, we don't specify a filename here
+            # as the AudioRecorder will generate device-specific filenames
+            audio_filename = None
+            if audio_indices and len(audio_indices) == 1:
+                # Only set filename for single device
+                audio_filename = os.path.join(
+                    destination, f"{subject_id}{audio_suffix}_{common_timestamp}.wav"
+                )
+
             video_filename = os.path.join(
                 destination, f"{subject_id}{video_suffix}_{common_timestamp}.mp4"
             )
@@ -246,7 +276,7 @@ class RecorderCore:
             self.audio_recorder.start_recording(
                 subject_id,
                 destination,
-                audio_device_index,
+                audio_indices,
                 pre_initialize=True,
                 filename=audio_filename,
             )
@@ -279,7 +309,7 @@ class RecorderCore:
             logging.error(traceback.format_exc())
             return False
 
-    def stop_both_recordings(self):
+    def stop_both_recordings(self) -> bool:
         """Stop both audio and video recordings if they are in progress.
 
         Returns:
