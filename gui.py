@@ -126,13 +126,9 @@ class RecorderApp(tk.Tk):
                 var = tk.BooleanVar(value=(i == auto_select_index))
                 self.audio_device_vars[device_key] = var
                 # Create checkbox
-                checkbox = ttk.Checkbutton(
+                checkbox = tk.Checkbutton(
                     self.audio_devices_frame, text=device_key, variable=var
                 )
-                if i == auto_select_index:
-                    checkbox.state(["!alternate", "selected"])
-                else:
-                    checkbox.state(["!alternate", "!selected"])
                 checkbox.grid(row=i, column=0, sticky=tk.W, pady=2)
             self.log_message("GUI Log: Audio devices refreshed")
         else:
