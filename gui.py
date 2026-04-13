@@ -129,6 +129,7 @@ class RecorderApp(tk.Tk):
                 checkbox = ttk.Checkbutton(
                     self.audio_devices_frame, text=device_key, variable=var
                 )
+                checkbox.state(["!alternate"])
                 checkbox.grid(row=i, column=0, sticky=tk.W, pady=2)
             self.log_message("GUI Log: Audio devices refreshed")
         else:
