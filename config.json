@@ -9,7 +9,7 @@
     "preferred_sample_rate": 48000,
       "fallback_settings": {
       "channels": 1,
-      "sample_rate": 44100,
+      "sample_rate": 48000,
       "chunk_duration": 0.1,
       "format": "paInt16"
     }

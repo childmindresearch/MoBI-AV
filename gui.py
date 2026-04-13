@@ -111,21 +111,25 @@ class RecorderApp(tk.Tk):
         self.audio_devices_map = {}
         self.audio_device_vars = {}
         if audio_devices:
+            # Determine which device to auto-select: prefer configured name + sample rate, else first
+            auto_select_index = 0
+            for i, dev in enumerate(audio_devices):
+                if self._should_auto_select_audio_device(dev["name"], dev["sample_rate"]):
+                    auto_select_index = i
+                    break
+
             # Create checkboxes for each audio device
             for i, dev in enumerate(audio_devices):
                 device_key = f"{dev['name']} (Channels: {dev['channels']}, Rate: {dev['sample_rate']})"
                 self.audio_devices_map[device_key] = dev["index"]
                 # Create checkbox variable
-                var = tk.BooleanVar()
+                var = tk.BooleanVar(value=(i == auto_select_index))
                 self.audio_device_vars[device_key] = var
                 # Create checkbox
                 checkbox = ttk.Checkbutton(
                     self.audio_devices_frame, text=device_key, variable=var
                 )
                 checkbox.grid(row=i, column=0, sticky=tk.W, pady=2)
-                # Auto-select first device or configured device
-                if i == 0 or self._should_auto_select_audio_device(dev["name"]):
-                    var.set(True)
             self.log_message("GUI Log: Audio devices refreshed")
         else:
             # No devices found
@@ -140,11 +144,17 @@ class RecorderApp(tk.Tk):
             self.video_device_menu.current(0)
         self.log_message("GUI Log: Device lists refreshed")
 
-    def _should_auto_select_audio_device(self, device_name: str) -> bool:
+    def _should_auto_select_audio_device(self, device_name: str, sample_rate: int) -> bool:
         """Check if this audio device should be auto-selected based on config."""
         try:
-            configured_device_name = self.core.config["audio_settings"]["device_name"]
-            return configured_device_name.lower() in device_name.lower()
+            audio_cfg = self.core.config["audio_settings"]
+            configured_device_name = audio_cfg["device_name"]
+            if configured_device_name.lower() not in device_name.lower():
+                return False
+            preferred_rate = audio_cfg.get("preferred_sample_rate")
+            if preferred_rate is not None and sample_rate != preferred_rate:
+                return False
+            return True
         except Exception:
             return False
 
