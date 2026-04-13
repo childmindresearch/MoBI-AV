@@ -58,6 +58,14 @@ class RecorderCore:
             config_path = os.path.join(base_path, "config.json")
             with open(config_path, "r") as f:
                 self.config = json.load(f)
+
+            # Resolve empty or missing default_destination to user's Documents folder
+            dest = self.config.get("default_destination", "").strip()
+            if not dest or not os.path.isabs(dest):
+                self.config["default_destination"] = os.path.join(
+                    os.path.expanduser("~"), "Documents"
+                )
+
             logging.info("Configuration loaded successfully")
         except Exception as e:
             logging.error(f"Failed to load configuration: {e}")

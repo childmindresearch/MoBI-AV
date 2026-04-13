@@ -1,6 +1,6 @@
 {
   "default_subject_id": "subject001",
-  "default_destination": "/Users/iktae.kim/Desktop/recording_check",
+  "default_destination": "",
   "audio_filename_suffix": "_audio",
   "video_filename_suffix": "_video",
   "audio_settings": {

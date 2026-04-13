@@ -64,10 +64,14 @@ class AudioRecorder:
         for i in range(p.get_device_count()):
             dev = p.get_device_info_by_index(i)
             if dev["maxInputChannels"] > 0:
+                # Skip Windows virtual mapper devices
+                name = dev["name"]
+                if "sound mapper" in name.lower():
+                    continue
                 devices.append(
                     {
                         "index": i,
-                        "name": dev["name"],
+                        "name": name,
                         "channels": dev["maxInputChannels"],
                         "sample_rate": int(dev["defaultSampleRate"]),
                         "host_api": dev["hostApi"],
