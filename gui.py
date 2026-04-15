@@ -22,7 +22,7 @@ class RecorderApp(tk.Tk):
         """Initialize the main GUI, widgets, and layout."""
         super().__init__()
         self.title("Audio & Video Recorder")
-        self.geometry("850x800")
+        self.geometry("850x850")
         self.resizable(True, True)
         self.core = RecorderCore()
 

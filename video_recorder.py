@@ -166,18 +166,24 @@ class VideoRecorder:
             camera_index = 0 if device_index is None else device_index
 
             # Reuse pre-warmed capture if it matches, otherwise open fresh
+            already_warm = False
             if self.video_capture and self.video_capture.isOpened():
                 if self._capture_device_index is not None and self._capture_device_index != camera_index:
                     logging.info(f"Releasing pre-warmed camera {self._capture_device_index}, opening camera {camera_index}")
                     self.video_capture.release()
                     self.video_capture = self._open_capture(camera_index)
                     self._capture_device_index = camera_index
+                else:
+                    already_warm = True
+                    logging.info(f"Using pre-warmed camera {camera_index}")
             else:
                 self.video_capture = self._open_capture(camera_index)
                 self._capture_device_index = camera_index
 
-            self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
-            self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
+            # Only set resolution/FPS if camera wasn't already configured
+            if not already_warm:
+                self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
+                self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
 
             if not self.video_capture.isOpened():
                 logging.error(f"Could not open video device at index {camera_index}")
@@ -555,10 +561,7 @@ class VideoRecorder:
         except Exception:
             pass
 
-        # Only release capture if not recording
-        if not self.recording and self.video_capture:
-            self.video_capture.release()
-            self.video_capture = None
+        # Keep the capture open so the camera stays warm for recording
 
         logging.info("Stopped video preview")
         return True
