@@ -142,6 +142,15 @@ class VideoRecorder:
                 logging.error(f"Could not open video device at index {camera_index}")
                 return False
 
+            # Read back actual resolution (driver may ignore our request)
+            self.actual_width = int(self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.actual_height = int(self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if self.actual_width != self.config["width"] or self.actual_height != self.config["height"]:
+                logging.info(
+                    f"Camera resolution {self.actual_width}x{self.actual_height} "
+                    f"differs from requested {self.config['width']}x{self.config['height']}"
+                )
+
             # Query camera's actual capabilities
             actual_fps = self.video_capture.get(cv2.CAP_PROP_FPS)
             if actual_fps > 0 and actual_fps < self.config["fps"]:
@@ -172,7 +181,7 @@ class VideoRecorder:
                 self.video_filename,
                 fourcc,
                 self.actual_fps,
-                (self.config["width"], self.config["height"]),
+                (self.actual_width, self.actual_height),
             )
 
             # Wait for camera to warm up and capture first frame

@@ -7,6 +7,7 @@ video and audio recording with device selection and preview capabilities.
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from typing import List
+import threading
 from recorder_core import RecorderCore
 
 
@@ -102,12 +103,27 @@ class RecorderApp(tk.Tk):
         self.refresh_devices()
 
     def refresh_devices(self) -> None:
-        """Update the lists of available audio and video devices."""
+        """Update the lists of available audio and video devices in background."""
         # Clear existing audio device checkboxes
         for widget in self.audio_devices_frame.winfo_children():
             widget.destroy()
-        # Get audio devices
-        audio_devices = self.core.get_available_audio_devices()
+        label = ttk.Label(self.audio_devices_frame, text="Scanning devices...")
+        label.grid(row=0, column=0, sticky=tk.W)
+        self.video_device_menu["values"] = ["Scanning..."]
+        self.video_device_menu.set("Scanning...")
+
+        def _scan() -> None:
+            audio_devices = self.core.get_available_audio_devices()
+            video_devices = self.core.get_available_video_devices()
+            self.after(0, lambda: self._populate_devices(audio_devices, video_devices))
+
+        threading.Thread(target=_scan, daemon=True).start()
+
+    def _populate_devices(self, audio_devices: list, video_devices: list) -> None:
+        """Populate device lists on the main thread after background scan."""
+        # Clear scanning placeholder
+        for widget in self.audio_devices_frame.winfo_children():
+            widget.destroy()
         self.audio_devices_map = {}
         self.audio_device_vars = {}
         if audio_devices:
@@ -137,7 +153,6 @@ class RecorderApp(tk.Tk):
             label.grid(row=0, column=0, sticky=tk.W)
             self.log_message("GUI Log: No audio devices found")
         # Get video devices
-        video_devices = self.core.get_available_video_devices()
         self.video_devices_map = {dev["name"]: dev["index"] for dev in video_devices}
         self.video_device_menu["values"] = list(self.video_devices_map.keys())
         if self.video_devices_map:
@@ -269,15 +284,24 @@ class RecorderApp(tk.Tk):
         if not selected_devices:
             messagebox.showerror("Error", "Please select at least one audio device")
             return
-        success = self.core.start_audio_recording(
-            subject_id, destination, selected_devices
-        )
+        self.start_audio_btn.config(state=tk.DISABLED)
+        self.log_message("Starting audio recording...")
+
+        def _start() -> None:
+            success = self.core.start_audio_recording(
+                subject_id, destination, selected_devices
+            )
+            self.after(0, lambda: self._on_audio_started(success, subject_id))
+
+        threading.Thread(target=_start, daemon=True).start()
+
+    def _on_audio_started(self, success: bool, subject_id: str) -> None:
         if success:
             self.audio_status_var.set("Recording...")
-            self.start_audio_btn.config(state=tk.DISABLED)
             self.stop_audio_btn.config(state=tk.NORMAL)
             self.log_message(f"Started audio recording for {subject_id}")
         else:
+            self.start_audio_btn.config(state=tk.NORMAL)
             messagebox.showerror(
                 "Error", "Failed to start audio recording. Check the log file."
             )
@@ -313,13 +337,22 @@ class RecorderApp(tk.Tk):
             return
         selected_device = self.video_device_var.get()
         device_index = self.video_devices_map.get(selected_device)
-        success = self.core.start_video_recording(subject_id, destination, device_index)
+        self.start_video_btn.config(state=tk.DISABLED)
+        self.log_message("Starting video recording...")
+
+        def _start() -> None:
+            success = self.core.start_video_recording(subject_id, destination, device_index)
+            self.after(0, lambda: self._on_video_started(success, subject_id))
+
+        threading.Thread(target=_start, daemon=True).start()
+
+    def _on_video_started(self, success: bool, subject_id: str) -> None:
         if success:
             self.video_status_var.set("Recording...")
-            self.start_video_btn.config(state=tk.DISABLED)
             self.stop_video_btn.config(state=tk.NORMAL)
             self.log_message(f"Started video recording for {subject_id}")
         else:
+            self.start_video_btn.config(state=tk.NORMAL)
             messagebox.showerror(
                 "Error", "Failed to start video recording. Check the log file."
             )
@@ -364,20 +397,31 @@ class RecorderApp(tk.Tk):
             return
         video_device = self.video_device_var.get()
         video_index = self.video_devices_map.get(video_device)
-        success = self.core.start_both_recordings(
-            subject_id, destination, selected_audio_devices, video_index
-        )
+        self.start_both_btn.config(state=tk.DISABLED)
+        self.start_audio_btn.config(state=tk.DISABLED)
+        self.start_video_btn.config(state=tk.DISABLED)
+        self.log_message("Starting audio and video recording...")
+
+        def _start() -> None:
+            success = self.core.start_both_recordings(
+                subject_id, destination, selected_audio_devices, video_index
+            )
+            self.after(0, lambda: self._on_both_started(success, subject_id))
+
+        threading.Thread(target=_start, daemon=True).start()
+
+    def _on_both_started(self, success: bool, subject_id: str) -> None:
         if success:
             self.audio_status_var.set("Recording...")
             self.video_status_var.set("Recording...")
-            self.start_audio_btn.config(state=tk.DISABLED)
             self.stop_audio_btn.config(state=tk.NORMAL)
-            self.start_video_btn.config(state=tk.DISABLED)
             self.stop_video_btn.config(state=tk.NORMAL)
-            self.start_both_btn.config(state=tk.DISABLED)
             self.stop_both_btn.config(state=tk.NORMAL)
             self.log_message(f"Started audio and video recording for {subject_id}")
         else:
+            self.start_audio_btn.config(state=tk.NORMAL)
+            self.start_video_btn.config(state=tk.NORMAL)
+            self.start_both_btn.config(state=tk.NORMAL)
             messagebox.showerror(
                 "Error", "Failed to start recordings. Check the log file."
             )

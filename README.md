@@ -4,23 +4,33 @@ A simple application for recording audio and video simultaneously with device se
 
 ## Installation
 
-### Windows Installation with UV
+### Running with uv (Recommended)
 
-1. Install UV if you don't have it:
+[uv](https://docs.astral.sh/uv/) is the recommended way to run this application. It handles Python and dependency management automatically.
 
-```bash
+1. Install uv if you don't have it:
+
+**Windows (PowerShell):**
+```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**macOS/Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 2. Clone or download this repository
 
-3. Install dependencies:
+3. Run the application:
 
 ```bash
-uv pip install -r requirements.txt
+uv run mobi-av
 ```
 
-## Creating an Executable (Windows)
+That's it — uv will automatically create a virtual environment, install all dependencies, and launch the app.
+
+### Creating an Executable (Windows)
 
 To create a standalone executable that can be run with a double-click:
 
@@ -42,7 +52,7 @@ python -m PyInstaller --onefile --windowed --add-binary "C:\Program Files\wheree
 
 ## Usage
 
-1. Double-click the executable to launch the application
+1. Run the app with `uv run mobi-av` (or double-click the executable)
 2. Select your audio and video devices
 3. Enter a subject ID and choose a destination folder
 4. Click "Start Recording" to begin capturing
