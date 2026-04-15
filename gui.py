@@ -96,6 +96,7 @@ class RecorderApp(tk.Tk):
             input_frame, textvariable=self.video_device_var, width=30
         )
         self.video_device_menu.grid(row=3, column=1, sticky=tk.W + tk.E, pady=5, padx=5)
+        self.video_device_menu.bind("<<ComboboxSelected>>", self._on_video_device_changed)
         refresh_btn = ttk.Button(
             input_frame, text="Refresh Devices", command=self.refresh_devices
         )
@@ -159,6 +160,27 @@ class RecorderApp(tk.Tk):
         if self.video_devices_map:
             self.video_device_menu.current(0)
         self.log_message("GUI Log: Device lists refreshed")
+
+    def _on_video_device_changed(self, event: object = None) -> None:
+        """Pre-warm the newly selected camera in a background thread."""
+        selected = self.video_device_var.get()
+        device_index = self.video_devices_map.get(selected)
+        if device_index is None:
+            return
+        recorder = self.core.video_recorder
+        # Skip if already warmed to this device
+        if recorder._capture_device_index == device_index and recorder.video_capture and recorder.video_capture.isOpened():
+            return
+        self.log_message(f"Warming up camera {device_index}...")
+
+        def _warm() -> None:
+            success = recorder.warm_up_device(device_index)
+            if success:
+                self.after(0, lambda: self.log_message(f"Camera {device_index} ready"))
+            else:
+                self.after(0, lambda: self.log_message(f"Failed to open camera {device_index}"))
+
+        threading.Thread(target=_warm, daemon=True).start()
 
     def _should_auto_select_audio_device(self, device_name: str, sample_rate: int) -> bool:
         """Check if this audio device should be auto-selected based on config."""
