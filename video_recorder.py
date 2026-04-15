@@ -55,6 +55,7 @@ class VideoRecorder:
         self.recording = False
         self.thread_active = False
         self.video_capture = None
+        self._capture_device_index: Optional[int] = None
         self.video_writer = None
         self.video_filename = None
         self.actual_fps = None
@@ -62,6 +63,27 @@ class VideoRecorder:
         self.preview_thread = None
         self.preview_active = False
         self.latest_preview_frame = None
+
+    def _open_capture(self, device_index: int) -> cv2.VideoCapture:
+        """Open a VideoCapture using the default backend."""
+        return cv2.VideoCapture(device_index)
+
+    def warm_up_device(self, device_index: int) -> bool:
+        """Open and configure a camera so it's ready for instant recording."""
+        if self.video_capture:
+            self.video_capture.release()
+            self.video_capture = None
+        cap = self._open_capture(device_index)
+        if not cap.isOpened():
+            return False
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
+        cap.set(cv2.CAP_PROP_FPS, self.config["fps"])
+        cap.read()  # Pull one frame to fully initialize the pipeline
+        self.video_capture = cap
+        self._capture_device_index = device_index
+        logging.info(f"Warmed up camera {device_index}")
+        return True
 
     def get_available_devices(self) -> List[Dict[str, Any]]:
         """Get a list of available video capture devices.
@@ -74,7 +96,7 @@ class VideoRecorder:
 
         # Try to detect multiple cameras by testing indices 0-5
         for i in range(6):
-            cap = cv2.VideoCapture(i)
+            cap = self._open_capture(i)
             if cap.isOpened():
                 # Try to read a frame to confirm it's working
                 ret, frame = cap.read()
@@ -91,7 +113,19 @@ class VideoRecorder:
 
                     devices.append({"index": i, "name": name})
                     logging.info(f"Found video device {i}: {name}")
-                cap.release()
+
+                    # Keep the first working camera open and warm for instant recording
+                    if self.video_capture is None:
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
+                        cap.set(cv2.CAP_PROP_FPS, self.config["fps"])
+                        self.video_capture = cap
+                        self._capture_device_index = i
+                        logging.info(f"Pre-warmed camera {i} for instant recording")
+                    else:
+                        cap.release()
+                else:
+                    cap.release()
 
         # Add a fallback option if no cameras detected
         if not devices:
@@ -131,16 +165,38 @@ class VideoRecorder:
             # Initialize camera with specified device index
             camera_index = 0 if device_index is None else device_index
 
-            # Use existing capture if preview is active, otherwise create new one
-            if not self.video_capture or not self.video_capture.isOpened():
-                self.video_capture = cv2.VideoCapture(camera_index)
+            # Reuse pre-warmed capture if it matches, otherwise open fresh
+            already_warm = False
+            if self.video_capture and self.video_capture.isOpened():
+                if self._capture_device_index is not None and self._capture_device_index != camera_index:
+                    logging.info(f"Releasing pre-warmed camera {self._capture_device_index}, opening camera {camera_index}")
+                    self.video_capture.release()
+                    self.video_capture = self._open_capture(camera_index)
+                    self._capture_device_index = camera_index
+                else:
+                    already_warm = True
+                    logging.info(f"Using pre-warmed camera {camera_index}")
+            else:
+                self.video_capture = self._open_capture(camera_index)
+                self._capture_device_index = camera_index
 
-            self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
-            self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
+            # Only set resolution/FPS if camera wasn't already configured
+            if not already_warm:
+                self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
+                self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
 
             if not self.video_capture.isOpened():
                 logging.error(f"Could not open video device at index {camera_index}")
                 return False
+
+            # Read back actual resolution (driver may ignore our request)
+            self.actual_width = int(self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.actual_height = int(self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if self.actual_width != self.config["width"] or self.actual_height != self.config["height"]:
+                logging.info(
+                    f"Camera resolution {self.actual_width}x{self.actual_height} "
+                    f"differs from requested {self.config['width']}x{self.config['height']}"
+                )
 
             # Query camera's actual capabilities
             actual_fps = self.video_capture.get(cv2.CAP_PROP_FPS)
@@ -172,7 +228,7 @@ class VideoRecorder:
                 self.video_filename,
                 fourcc,
                 self.actual_fps,
-                (self.config["width"], self.config["height"]),
+                (self.actual_width, self.actual_height),
             )
 
             # Wait for camera to warm up and capture first frame
@@ -409,15 +465,10 @@ class VideoRecorder:
                         "forcing resources to close"
                     )
 
-            # Release resources
+            # Release video writer only; keep capture warm for next recording
             if self.video_writer:
                 self.video_writer.release()
                 self.video_writer = None
-
-            # Don't release video_capture if preview is still active
-            if self.video_capture and not self.show_preview:
-                self.video_capture.release()
-                self.video_capture = None
 
             # Send marker to LSL
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -462,7 +513,8 @@ class VideoRecorder:
                     return False
                 device_index = devices[0]["index"]
 
-            self.video_capture = cv2.VideoCapture(device_index)
+            self.video_capture = self._open_capture(device_index)
+            self._capture_device_index = device_index
 
             if not self.video_capture.isOpened():
                 logging.error(f"Could not open video device {device_index} for preview")
@@ -475,10 +527,12 @@ class VideoRecorder:
         self.show_preview = True
         self.preview_active = True
 
-        # Start preview thread
-        self.preview_thread = threading.Thread(target=self._preview_thread)
-        self.preview_thread.daemon = True
-        self.preview_thread.start()
+        # During recording, the recording thread provides preview frames via
+        # latest_preview_frame — no need for a separate read loop.
+        if not self.recording:
+            self.preview_thread = threading.Thread(target=self._preview_thread)
+            self.preview_thread.daemon = True
+            self.preview_thread.start()
 
         logging.info("Started video preview")
         return True
@@ -504,10 +558,7 @@ class VideoRecorder:
         except Exception:
             pass
 
-        # Only release capture if not recording
-        if not self.recording and self.video_capture:
-            self.video_capture.release()
-            self.video_capture = None
+        # Keep the capture open so the camera stays warm for recording
 
         logging.info("Stopped video preview")
         return True
