@@ -5,6 +5,7 @@ for device selection and LSL marker synchronization.
 """
 
 import os
+import sys
 import cv2  # type: ignore[import-not-found, import-untyped]
 import logging
 import threading
@@ -63,6 +64,12 @@ class VideoRecorder:
         self.preview_active = False
         self.latest_preview_frame = None
 
+    def _open_capture(self, device_index: int) -> cv2.VideoCapture:
+        """Open a VideoCapture with the fastest backend for the current OS."""
+        if sys.platform == "win32":
+            return cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
+        return cv2.VideoCapture(device_index)
+
     def get_available_devices(self) -> List[Dict[str, Any]]:
         """Get a list of available video capture devices.
 
@@ -74,7 +81,7 @@ class VideoRecorder:
 
         # Try to detect multiple cameras by testing indices 0-5
         for i in range(6):
-            cap = cv2.VideoCapture(i)
+            cap = self._open_capture(i)
             if cap.isOpened():
                 # Try to read a frame to confirm it's working
                 ret, frame = cap.read()
@@ -133,7 +140,7 @@ class VideoRecorder:
 
             # Use existing capture if preview is active, otherwise create new one
             if not self.video_capture or not self.video_capture.isOpened():
-                self.video_capture = cv2.VideoCapture(camera_index)
+                self.video_capture = self._open_capture(camera_index)
 
             self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config["width"])
             self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config["height"])
@@ -471,7 +478,7 @@ class VideoRecorder:
                     return False
                 device_index = devices[0]["index"]
 
-            self.video_capture = cv2.VideoCapture(device_index)
+            self.video_capture = self._open_capture(device_index)
 
             if not self.video_capture.isOpened():
                 logging.error(f"Could not open video device {device_index} for preview")
