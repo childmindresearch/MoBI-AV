@@ -22,7 +22,7 @@ class RecorderApp(tk.Tk):
         """Initialize the main GUI, widgets, and layout."""
         super().__init__()
         self.title("Audio & Video Recorder")
-        self.geometry("850x750")
+        self.geometry("850x800")
         self.resizable(True, True)
         self.core = RecorderCore()
 
@@ -87,6 +87,7 @@ class RecorderApp(tk.Tk):
         )
         self.audio_device_vars = {}  # type: ignore
         self.audio_devices_map = {}  # type: ignore
+        self.video_devices_map = {}  # type: ignore
         ttk.Label(input_frame, text="Video Device:").grid(
             row=3, column=0, sticky=tk.W, pady=5
         )
@@ -453,13 +454,28 @@ class RecorderApp(tk.Tk):
         device_index = self.video_devices_map.get(selected_device, 0)
         if device_index is not None:
             self.core.video_recorder.preview_device_index = device_index
-        preview_state = self.core.video_recorder.toggle_preview()
-        if preview_state:
+
+        if self.core.video_recorder.show_preview:
+            self.core.video_recorder.stop_preview()
+            self.log_message("Video preview stopped")
+        else:
+            self.preview_btn.config(state=tk.DISABLED)
+            self.log_message("Starting video preview...")
+
+            def _start() -> None:
+                self.core.video_recorder.start_preview()
+                self.after(0, self._on_preview_started)
+
+            threading.Thread(target=_start, daemon=True).start()
+
+    def _on_preview_started(self) -> None:
+        self.preview_btn.config(state=tk.NORMAL)
+        if self.core.video_recorder.show_preview:
             self.log_message(
                 "Video preview started - separate OpenCV window will appear"
             )
         else:
-            self.log_message("Video preview stopped")
+            self.log_message("Failed to start video preview")
 
     def update_preview_window(self) -> None:
         """Update the OpenCV preview window from main thread."""
