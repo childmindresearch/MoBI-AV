@@ -465,15 +465,10 @@ class VideoRecorder:
                         "forcing resources to close"
                     )
 
-            # Release resources
+            # Release video writer only; keep capture warm for next recording
             if self.video_writer:
                 self.video_writer.release()
                 self.video_writer = None
-
-            # Don't release video_capture if preview is still active
-            if self.video_capture and not self.show_preview:
-                self.video_capture.release()
-                self.video_capture = None
 
             # Send marker to LSL
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -532,10 +527,12 @@ class VideoRecorder:
         self.show_preview = True
         self.preview_active = True
 
-        # Start preview thread
-        self.preview_thread = threading.Thread(target=self._preview_thread)
-        self.preview_thread.daemon = True
-        self.preview_thread.start()
+        # During recording, the recording thread provides preview frames via
+        # latest_preview_frame — no need for a separate read loop.
+        if not self.recording:
+            self.preview_thread = threading.Thread(target=self._preview_thread)
+            self.preview_thread.daemon = True
+            self.preview_thread.start()
 
         logging.info("Started video preview")
         return True

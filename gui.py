@@ -174,6 +174,9 @@ class RecorderApp(tk.Tk):
         self.log_message(f"Warming up camera {device_index}...")
 
         def _warm() -> None:
+            # Stop preview first to avoid reading from a released capture
+            if recorder.preview_active:
+                recorder.stop_preview()
             success = recorder.warm_up_device(device_index)
             if success:
                 self.after(0, lambda: self.log_message(f"Camera {device_index} ready"))
