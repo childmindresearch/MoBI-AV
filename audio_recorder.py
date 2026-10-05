@@ -218,11 +218,10 @@ class AudioRecorder:
                 input=True,
                 frames_per_buffer=chunk,
                 input_device_index=device_index,
-                stream_callback=lambda in_data,
-                frame_count,
-                time_info,
-                status: self.audio_callback(
-                    in_data, frame_count, time_info, status, device_index
+                stream_callback=lambda in_data, frame_count, time_info, status: (
+                    self.audio_callback(
+                        in_data, frame_count, time_info, status, device_index
+                    )
                 ),
                 start=not pre_initialize,  # Only start if not pre-initializing
             )

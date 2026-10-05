@@ -4,58 +4,53 @@ A simple application for recording audio and video simultaneously with device se
 
 ## Installation
 
-### Running with uv (Recommended)
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then clone
+the repository and install the dependencies:
 
-[uv](https://docs.astral.sh/uv/) is the recommended way to run this application. It handles Python and dependency management automatically.
-
-1. Install uv if you don't have it:
-
-**Windows (PowerShell):**
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-**macOS/Linux:**
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/childmindresearch/MoBI-AV.git
+cd MoBI-AV
+uv sync
 ```
 
-2. Clone or download this repository
+## Usage
 
-3. Run the application:
+Launch the GUI from the repository directory:
 
 ```bash
 uv run mobi-av
 ```
 
-That's it — uv will automatically create a virtual environment, install all dependencies, and launch the app.
+uv automatically creates a virtual environment, installs the dependencies, and
+launches the GUI.
 
-### Creating an Executable (Windows)
+Then:
 
-To create a standalone executable that can be run with a double-click:
+1. Select your audio and video devices.
+2. Enter or confirm the subject ID and destination folder.
+3. Click "Start Recording" to begin capturing.
 
-1. Install PyInstaller:
+### Optional launch arguments
+
+An external launcher, such as the MSM protocol GUI, can prefill the subject ID
+and destination folder:
 
 ```bash
-uv pip install pyinstaller
+uv run mobi-av --subject-id "ID001" --output-path "recordings/ID001"
 ```
 
-2. Create the executable with LSL support:
+Both arguments are optional and independent. An omitted argument uses the
+existing configuration default: `default_subject_id` for the ID and
+`default_destination` for the folder. With the shipped configuration, the ID is
+`subject001` and the empty destination setting resolves to the user's Documents
+folder. Launching without arguments continues to use these defaults.
 
-```bash
-python -m PyInstaller --onefile --windowed --add-binary "C:\Program Files\whereever_lsl_was_installed\liblsl64.dll;pylsl\lib" run.py
-```
+These arguments only prefill the editable GUI fields for the current session.
+They do not modify `config.json` or start recording automatically. Quote paths
+containing spaces; relative paths are relative to the launcher's working
+directory. Blank argument values are rejected with a command-line error.
 
-3. The executable will be created in the `dist` folder
-
-4. To modify settings, copy and edit the `config.json` file in the same folder as the executable
-
-## Usage
-
-1. Run the app with `uv run mobi-av` (or double-click the executable)
-2. Select your audio and video devices
-3. Enter a subject ID and choose a destination folder
-4. Click "Start Recording" to begin capturing
+Use `uv run mobi-av --help` to see the available arguments.
 
 ## Features
 
@@ -78,6 +73,7 @@ This application features Lab Streaming Layer (LSL) integration for synchronizin
 ### LSL Configuration
 
 In the `config.json` file, you can adjust the LSL settings:
+
 ```json
 "lsl_settings": {
   "audio_stream_name": "AudioMarkers",  
@@ -85,12 +81,12 @@ In the `config.json` file, you can adjust the LSL settings:
   "marker_sampling_rate": 0
 }
 ```
-Note: `sampling rate: 0` indicates irregular sampling rate for pylsl
 
+Note: `sampling rate: 0` indicates irregular sampling rate for pylsl
 
 ## Configuration
 
-Edit `config.json` to customize:
+Edit [config.json](config.json) in the repository directory to customize:
 
 - Default subject ID
 - Recording destination

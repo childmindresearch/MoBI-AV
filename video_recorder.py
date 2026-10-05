@@ -168,8 +168,13 @@ class VideoRecorder:
             # Reuse pre-warmed capture if it matches, otherwise open fresh
             already_warm = False
             if self.video_capture and self.video_capture.isOpened():
-                if self._capture_device_index is not None and self._capture_device_index != camera_index:
-                    logging.info(f"Releasing pre-warmed camera {self._capture_device_index}, opening camera {camera_index}")
+                if (
+                    self._capture_device_index is not None
+                    and self._capture_device_index != camera_index
+                ):
+                    logging.info(
+                        f"Releasing pre-warmed camera {self._capture_device_index}, opening camera {camera_index}"
+                    )
                     self.video_capture.release()
                     self.video_capture = self._open_capture(camera_index)
                     self._capture_device_index = camera_index
@@ -192,7 +197,10 @@ class VideoRecorder:
             # Read back actual resolution (driver may ignore our request)
             self.actual_width = int(self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
             self.actual_height = int(self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            if self.actual_width != self.config["width"] or self.actual_height != self.config["height"]:
+            if (
+                self.actual_width != self.config["width"]
+                or self.actual_height != self.config["height"]
+            ):
                 logging.info(
                     f"Camera resolution {self.actual_width}x{self.actual_height} "
                     f"differs from requested {self.config['width']}x{self.config['height']}"
@@ -223,7 +231,7 @@ class VideoRecorder:
             self.video_start_time = datetime.now()
 
             # Create video writer with adjusted frame rate
-            fourcc = cv2.VideoWriter_fourcc(*self.config["codec"])
+            fourcc = cv2.VideoWriter.fourcc(*self.config["codec"])
             self.video_writer = cv2.VideoWriter(
                 self.video_filename,
                 fourcc,

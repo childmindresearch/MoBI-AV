@@ -6,7 +6,6 @@ recording, handling configuration, and synchronizing recordings.
 
 import os
 import json
-import sys
 import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
@@ -43,19 +42,9 @@ class RecorderCore:
         )
 
     def load_config(self) -> None:
-        """Load configuration from config.json.
-
-        Raises:
-            RuntimeError: If configuration cannot be loaded.
-        """
+        """Load config.json alongside this module, using defaults on failure."""
         try:
-            # Use the executable directory when frozen; else use the script directory.
-            if getattr(sys, "frozen", False):
-                base_path = os.path.dirname(sys.executable)
-            else:
-                base_path = os.path.dirname(__file__)
-
-            config_path = os.path.join(base_path, "config.json")
+            config_path = os.path.join(os.path.dirname(__file__), "config.json")
             with open(config_path, "r") as f:
                 self.config = json.load(f)
 
