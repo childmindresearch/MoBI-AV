@@ -7,7 +7,7 @@ import tkinter as tk
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Callable, Iterator, List, Optional
 from unittest.mock import DEFAULT, Mock, mock_open, patch
 
 import pytest
@@ -27,9 +27,24 @@ def recorder_core() -> Iterator[Mock]:
             "default_destination": "/configured/destination",
         }
     )
+    core.get_available_audio_devices.return_value = []
+    core.get_available_video_devices.return_value = []
+
+    def start_worker(target: Callable[[], None], daemon: bool = False) -> Mock:
+        worker = Mock()
+        worker.start.side_effect = target
+        return worker
+
+    def run_callback(delay: int, callback: Callable[[], None]) -> None:
+        callback()
+
     with ExitStack() as stack:
         stack.enter_context(patch("gui.RecorderCore", return_value=core))
         stack.enter_context(patch.object(tk.Tk, "__init__", return_value=None))
+        stack.enter_context(patch("gui.threading.Thread", side_effect=start_worker))
+        stack.enter_context(
+            patch.object(gui.RecorderApp, "after", side_effect=run_callback)
+        )
         stack.enter_context(
             patch.multiple(
                 gui.RecorderApp,
@@ -39,7 +54,6 @@ def recorder_core() -> Iterator[Mock]:
                 protocol=DEFAULT,
                 create_control_buttons=DEFAULT,
                 create_status_display=DEFAULT,
-                refresh_devices=DEFAULT,
                 update_preview_window=DEFAULT,
                 log_message=DEFAULT,
             )
@@ -267,6 +281,8 @@ def test_launch_values_override_defaults_without_changing_config(
     assert app.subject_id_var.get() == "00042"
     assert app.destination_var.get() == "C:\\Test Data\\00042"
     assert recorder_core.config == config
+    recorder_core.get_available_audio_devices.assert_called_once_with()
+    recorder_core.get_available_video_devices.assert_called_once_with()
 
 
 @pytest.mark.parametrize(
@@ -343,3 +359,5 @@ def test_all_recording_modes_use_the_current_field_values(
     recorder_core.start_both_recordings.assert_called_once_with(
         "subject002", "recordings/subject002", [4], 2
     )
+    assert app.audio_status_var.get() == "Recording..."
+    assert app.video_status_var.get() == "Recording..."

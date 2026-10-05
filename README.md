@@ -21,6 +21,9 @@ Launch the GUI from the repository directory:
 uv run mobi-av
 ```
 
+uv automatically creates a virtual environment, installs the dependencies, and
+launches the GUI.
+
 Then:
 
 1. Select your audio and video devices.
