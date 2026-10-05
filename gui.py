@@ -5,8 +5,9 @@ video and audio recording with device selection and preview capabilities.
 """
 
 import tkinter as tk
-from tkinter import filedialog, ttk, messagebox
-from typing import List
+from tkinter import filedialog, messagebox, ttk
+from typing import List, Optional
+
 from recorder_core import RecorderCore
 
 
@@ -17,8 +18,10 @@ class RecorderApp(tk.Tk):
     Widgets are grouped by function: audio controls, video controls, and status/log.
     """
 
-    def __init__(self) -> None:
-        """Initialize the main GUI, widgets, and layout."""
+    def __init__(
+        self, subject_id: Optional[str] = None, destination: Optional[str] = None
+    ) -> None:
+        """Initialize the GUI, using configuration defaults for omitted settings."""
         super().__init__()
         self.title("Audio & Video Recorder")
         self.geometry("850x750")
@@ -30,7 +33,9 @@ class RecorderApp(tk.Tk):
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Input fields (subject, destination, device selectors)
-        self.create_input_fields(main_frame)
+        self.create_input_fields(
+            main_frame, subject_id=subject_id, destination=destination
+        )
 
         # Controls grouped by function
         self.create_control_buttons(main_frame)
@@ -51,14 +56,23 @@ class RecorderApp(tk.Tk):
         self.update_preview_window()
         self.log_message("Application initialized")
 
-    def create_input_fields(self, parent: tk.Widget) -> None:
+    def create_input_fields(
+        self,
+        parent: tk.Widget,
+        subject_id: Optional[str] = None,
+        destination: Optional[str] = None,
+    ) -> None:
         """Create subject, destination, and device selection widgets."""
         input_frame = ttk.LabelFrame(parent, text="Recording Settings", padding="10")
         input_frame.pack(fill=tk.X, pady=10)
         ttk.Label(input_frame, text="Subject ID:").grid(
             row=0, column=0, sticky=tk.W, pady=5
         )
-        self.subject_id_var = tk.StringVar(value=self.core.config["default_subject_id"])
+        self.subject_id_var = tk.StringVar(
+            value=self.core.config["default_subject_id"]
+            if subject_id is None
+            else subject_id
+        )
         self.subject_id_entry = ttk.Entry(
             input_frame, textvariable=self.subject_id_var, width=30
         )
@@ -68,6 +82,8 @@ class RecorderApp(tk.Tk):
         )
         self.destination_var = tk.StringVar(
             value=self.core.config["default_destination"]
+            if destination is None
+            else destination
         )
         self.destination_entry = ttk.Entry(
             input_frame, textvariable=self.destination_var, width=30
@@ -114,7 +130,9 @@ class RecorderApp(tk.Tk):
             # Determine which device to auto-select: prefer configured name + sample rate, else first
             auto_select_index = 0
             for i, dev in enumerate(audio_devices):
-                if self._should_auto_select_audio_device(dev["name"], dev["sample_rate"]):
+                if self._should_auto_select_audio_device(
+                    dev["name"], dev["sample_rate"]
+                ):
                     auto_select_index = i
                     break
 
@@ -144,7 +162,9 @@ class RecorderApp(tk.Tk):
             self.video_device_menu.current(0)
         self.log_message("GUI Log: Device lists refreshed")
 
-    def _should_auto_select_audio_device(self, device_name: str, sample_rate: int) -> bool:
+    def _should_auto_select_audio_device(
+        self, device_name: str, sample_rate: int
+    ) -> bool:
         """Check if this audio device should be auto-selected based on config."""
         try:
             audio_cfg = self.core.config["audio_settings"]
@@ -152,9 +172,7 @@ class RecorderApp(tk.Tk):
             if configured_device_name.lower() not in device_name.lower():
                 return False
             preferred_rate = audio_cfg.get("preferred_sample_rate")
-            if preferred_rate is not None and sample_rate != preferred_rate:
-                return False
-            return True
+            return not (preferred_rate is not None and sample_rate != preferred_rate)
         except Exception:
             return False
 
@@ -426,8 +444,8 @@ class RecorderApp(tk.Tk):
                 and self.core.video_recorder.show_preview
             ):
                 self.core.video_recorder.show_preview_window()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.log_message(f"Failed to update video preview: {exc}")
         self.after(100, self.update_preview_window)
 
     def on_close(self) -> None:
@@ -450,7 +468,7 @@ class RecorderApp(tk.Tk):
             self.destroy()
 
 
-# For testing
 if __name__ == "__main__":
-    app = RecorderApp()
-    app.mainloop()
+    from run import main
+
+    raise SystemExit(main())

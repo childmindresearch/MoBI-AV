@@ -167,7 +167,7 @@ class VideoRecorder:
             self.video_start_time = datetime.now()
 
             # Create video writer with adjusted frame rate
-            fourcc = cv2.VideoWriter_fourcc(*self.config["codec"])
+            fourcc = cv2.VideoWriter.fourcc(*self.config["codec"])
             self.video_writer = cv2.VideoWriter(
                 self.video_filename,
                 fourcc,
