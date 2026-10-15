@@ -66,8 +66,9 @@ This application features Lab Streaming Layer (LSL) integration for synchronizin
 - Automatically creates two LSL marker streams (audio and video) when the application launches
 - Streams event markers for recording start/stop events with detailed metadata
 - Audio markers include: subject ID, filename, timestamp, channels, and sample rate
-- Video markers include: subject ID, filename, timestamp, precise ISO timestamp, and fps
-- Marker stream names and sampling rates are configurable in config.json
+- Video markers include: subject ID, filename, timestamp, precise ISO timestamp, and camera-adjusted writer FPS
+- Marker stream names and marker sampling rates are configurable in [config.json](config.json)
+- Video stream metadata includes the intended recording FPS from `video_settings.fps`
 - Useful for time-synchronizing recordings with other experimental data sources
 
 ### LSL Configuration
@@ -82,7 +83,30 @@ In the `config.json` file, you can adjust the LSL settings:
 }
 ```
 
-Note: `sampling rate: 0` indicates irregular sampling rate for pylsl
+`marker_sampling_rate: 0` indicates irregular sampling for pylsl. These streams
+carry start/stop events, not audio samples or video frames, so this rate should
+remain `0` rather than match the recording rate.
+
+### Video frame rate metadata
+
+The video marker stream stores the configured `video_settings.fps` in its
+extended metadata at `desc/nominal_fps`. With the shipped configuration, this is:
+
+```xml
+<desc>
+  <nominal_fps>24</nominal_fps>
+</desc>
+```
+
+This metadata is included in the LSL stream header when the stream is recorded,
+so the intended video rate can be read without estimating it from timestamps.
+For a video marker stream loaded with pyxdf, it is available as
+`video_stream["info"]["desc"][0]["nominal_fps"][0]`.
+
+The existing FPS field in `VIDEO_START` remains the camera-adjusted frame rate
+used by the MP4 writer. It may differ from the configured nominal FPS and is not
+a measurement of achieved capture throughput; measured recording FPS continues
+to be reported in the application logs.
 
 ## Configuration
 

@@ -7,7 +7,7 @@ including marker stream creation and standardized marker formatting.
 import socket
 from pylsl import StreamInfo, StreamOutlet  # type: ignore[import-untyped]
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 class MarkerStreams:
@@ -21,22 +21,22 @@ class MarkerStreams:
     audio_marker_outlet: StreamOutlet
     video_marker_outlet: StreamOutlet
 
-    def __init__(self, config: Dict) -> None:
+    def __init__(self, config: Dict[str, Any]) -> None:
         """Initialize LSL marker streams based on provided configuration.
 
         Args:
-            config: Dictionary containing LSL configuration parameters.
+            config: Application configuration, including LSL and video settings.
 
         Raises:
             RuntimeError: If LSL streams cannot be created.
         """
         try:
-            # Get LSL sampling rates from config
-            marker_rate: int = config.get("marker_sampling_rate", 0)
+            lsl_config = config["lsl_settings"]
+            marker_rate: int = lsl_config.get("marker_sampling_rate", 0)
 
             # Audio marker outlet
             audio_info = StreamInfo(
-                config["audio_stream_name"],
+                lsl_config["audio_stream_name"],
                 "Markers",
                 1,
                 marker_rate,
@@ -47,12 +47,15 @@ class MarkerStreams:
 
             # Video marker outlet
             video_info = StreamInfo(
-                config["video_stream_name"],
+                lsl_config["video_stream_name"],
                 "Markers",
                 1,
                 marker_rate,
                 "string",
                 f"video_markers_{socket.gethostname()}",
+            )
+            video_info.desc().append_child_value(
+                "nominal_fps", str(config["video_settings"]["fps"])
             )
             self.video_marker_outlet = StreamOutlet(video_info)
             logging.info("LSL outlets created successfully")

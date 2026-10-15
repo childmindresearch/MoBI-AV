@@ -33,7 +33,7 @@ class RecorderCore:
     def __init__(self) -> None:
         """Initialize the RecorderCore with configuration and components."""
         self.load_config()
-        self.marker_streams = MarkerStreams(self.config["lsl_settings"])
+        self.marker_streams = MarkerStreams(self.config)
         self.audio_recorder = AudioRecorder(
             self.config["audio_settings"], self.marker_streams
         )
