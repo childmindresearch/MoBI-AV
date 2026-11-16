@@ -1,27 +1,30 @@
-"""LSL utilities module for audio/video recorder.
+"""LSL utilities module for audio, video, and screen recording.
 
 This module provides utilities for Lab Streaming Layer (LSL) integration,
 including marker stream creation and standardized marker formatting.
 """
 
+import json
 import socket
 from pylsl import StreamInfo, StreamOutlet  # type: ignore[import-untyped]
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 class MarkerStreams:
-    """Creates and manages LSL marker streams for audio and video.
+    """Creates and manages LSL marker streams for audio, video, and screen.
 
     Attributes:
         audio_marker_outlet: StreamOutlet for audio recording markers.
         video_marker_outlet: StreamOutlet for video recording markers.
+        screen_marker_outlet: StreamOutlet for screen recording markers.
     """
 
     audio_marker_outlet: StreamOutlet
     video_marker_outlet: StreamOutlet
+    screen_marker_outlet: StreamOutlet
 
-    def __init__(self, config: Dict) -> None:
+    def __init__(self, config: Dict[str, Any]) -> None:
         """Initialize LSL marker streams based on provided configuration.
 
         Args:
@@ -55,6 +58,15 @@ class MarkerStreams:
                 f"video_markers_{socket.gethostname()}",
             )
             self.video_marker_outlet = StreamOutlet(video_info)
+            screen_info = StreamInfo(
+                config.get("screen_stream_name", "ScreenMarkers"),
+                "Markers",
+                1,
+                marker_rate,
+                "string",
+                f"screen_markers_{socket.gethostname()}",
+            )
+            self.screen_marker_outlet = StreamOutlet(screen_info)
             logging.info("LSL outlets created successfully")
         except Exception as e:
             logging.error(f"Failed to create LSL outlets: {e}")
@@ -127,3 +139,19 @@ class MarkerStreams:
         """
         marker = f"VIDEO_STOP,{filename},{timestamp}"
         self.video_marker_outlet.push_sample([marker])
+
+    def send_screen_marker(
+        self, event: str, timestamp: float, **fields: Any
+    ) -> None:
+        """Send a screen recording event with its LSL timestamp and metadata.
+
+        Args:
+            event: Screen event name, such as ``SCREEN_START`` or ``SCREEN_FRAME``.
+            timestamp: LSL clock timestamp associated with the event.
+            **fields: Event metadata serialized into the marker payload.
+        """
+        marker = json.dumps(
+            {"event": event, "timestamp": timestamp, **fields},
+            separators=(",", ":"),
+        )
+        self.screen_marker_outlet.push_sample([marker], timestamp)

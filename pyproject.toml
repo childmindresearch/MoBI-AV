@@ -12,6 +12,8 @@ dependencies = [
     "pyaudio",
     "opencv-python",
     "pylsl",
+    "mss",
+    "imageio-ffmpeg",
 ]
 
 [project.scripts]
@@ -24,6 +26,8 @@ only-include = [
     "recorder_core.py",
     "audio_recorder.py",
     "video_recorder.py",
+    "screen_recorder.py",
+    "config.json",
     "gui.py",
     "lsl_utils.py",
 ]

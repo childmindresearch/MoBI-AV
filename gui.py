@@ -1,28 +1,30 @@
-"""GUI module for video and audio recording application.
+"""GUI module for audio, video, and screen recording.
 
 This module provides the main GUI interface for configuring and controlling
-video and audio recording with device selection and preview capabilities.
+audio, video, and screen recording with device selection and preview capabilities.
 """
 
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
-from typing import List
+import logging
 import threading
+from typing import Any, Dict, List, Optional
+
 from recorder_core import RecorderCore
 
 
 class RecorderApp(tk.Tk):
-    """Main GUI application for video and audio recording.
+    """Main GUI application for audio, video, and screen recording.
 
     Provides device selection, recording controls, and status/log display.
-    Widgets are grouped by function: audio controls, video controls, and status/log.
+    Widgets are grouped by function: audio, video, screen, and combined controls.
     """
 
     def __init__(self) -> None:
         """Initialize the main GUI, widgets, and layout."""
         super().__init__()
-        self.title("Audio & Video Recorder")
-        self.geometry("850x850")
+        self.title("Audio, Video & Screen Recorder")
+        self.geometry("1100x850")
         self.resizable(True, True)
         self.core = RecorderCore()
 
@@ -50,6 +52,7 @@ class RecorderApp(tk.Tk):
 
         # Preview window update
         self.update_preview_window()
+        self.update_screen_status()
         self.log_message("Application initialized")
 
     def create_input_fields(self, parent: tk.Widget) -> None:
@@ -88,6 +91,8 @@ class RecorderApp(tk.Tk):
         self.audio_device_vars = {}  # type: ignore
         self.audio_devices_map = {}  # type: ignore
         self.video_devices_map = {}  # type: ignore
+        self.screen_devices_map: Dict[str, int] = {}
+        self._reported_screen_error: Optional[str] = None
         ttk.Label(input_frame, text="Video Device:").grid(
             row=3, column=0, sticky=tk.W, pady=5
         )
@@ -97,15 +102,25 @@ class RecorderApp(tk.Tk):
         )
         self.video_device_menu.grid(row=3, column=1, sticky=tk.W + tk.E, pady=5, padx=5)
         self.video_device_menu.bind("<<ComboboxSelected>>", self._on_video_device_changed)
+        ttk.Label(input_frame, text="Screen:").grid(
+            row=4, column=0, sticky=tk.W, pady=5
+        )
+        self.screen_device_var = tk.StringVar()
+        self.screen_device_menu = ttk.Combobox(
+            input_frame, textvariable=self.screen_device_var, width=30
+        )
+        self.screen_device_menu.grid(
+            row=4, column=1, sticky=tk.W + tk.E, pady=5, padx=5
+        )
         refresh_btn = ttk.Button(
             input_frame, text="Refresh Devices", command=self.refresh_devices
         )
-        refresh_btn.grid(row=2, column=2, rowspan=2, padx=5, pady=5)
+        refresh_btn.grid(row=2, column=2, rowspan=3, padx=5, pady=5)
         input_frame.columnconfigure(1, weight=1)
         self.refresh_devices()
 
     def refresh_devices(self) -> None:
-        """Update the lists of available audio and video devices in background."""
+        """Update the lists of available audio, video, and screen devices."""
         # Clear existing audio device checkboxes
         for widget in self.audio_devices_frame.winfo_children():
             widget.destroy()
@@ -113,15 +128,35 @@ class RecorderApp(tk.Tk):
         label.grid(row=0, column=0, sticky=tk.W)
         self.video_device_menu["values"] = ["Scanning..."]
         self.video_device_menu.set("Scanning...")
+        self.screen_device_menu["values"] = ["Scanning..."]
+        self.screen_device_menu.set("Scanning...")
 
         def _scan() -> None:
             audio_devices = self.core.get_available_audio_devices()
             video_devices = self.core.get_available_video_devices()
-            self.after(0, lambda: self._populate_devices(audio_devices, video_devices))
+            screen_error = None
+            try:
+                screens = self.core.get_available_screens()
+            except Exception as exc:
+                logging.exception("Failed to scan available screens")
+                screens = []
+                screen_error = str(exc)
+            self.after(
+                0,
+                lambda: self._populate_devices(
+                    audio_devices, video_devices, screens, screen_error
+                ),
+            )
 
         threading.Thread(target=_scan, daemon=True).start()
 
-    def _populate_devices(self, audio_devices: list, video_devices: list) -> None:
+    def _populate_devices(
+        self,
+        audio_devices: List[Dict[str, Any]],
+        video_devices: List[Dict[str, Any]],
+        screens: List[Dict[str, Any]],
+        screen_error: Optional[str] = None,
+    ) -> None:
         """Populate device lists on the main thread after background scan."""
         # Clear scanning placeholder
         for widget in self.audio_devices_frame.winfo_children():
@@ -159,6 +194,28 @@ class RecorderApp(tk.Tk):
         self.video_device_menu["values"] = list(self.video_devices_map.keys())
         if self.video_devices_map:
             self.video_device_menu.current(0)
+        self.screen_devices_map = {
+            screen["name"]: screen["index"] for screen in screens
+        }
+        self.screen_device_menu["values"] = list(self.screen_devices_map.keys())
+        configured_monitor = self.core.config["screen_settings"]["monitor_index"]
+        selected_screen = next(
+            (
+                name
+                for name, index in self.screen_devices_map.items()
+                if index == configured_monitor
+            ),
+            None,
+        )
+        if selected_screen is not None:
+            self.screen_device_var.set(selected_screen)
+        elif self.screen_devices_map:
+            self.screen_device_menu.current(0)
+        elif screen_error:
+            self.screen_device_var.set("Screen scan failed")
+            self.log_message(f"GUI Log: Failed to scan screens: {screen_error}")
+        else:
+            self.screen_device_var.set("No screens found")
         self.log_message("GUI Log: Device lists refreshed")
 
     def _on_video_device_changed(self, event: object = None) -> None:
@@ -219,14 +276,22 @@ class RecorderApp(tk.Tk):
             status_frame, textvariable=self.video_status_var
         )
         self.video_status_label.grid(row=1, column=1, sticky=tk.W, pady=5)
+        ttk.Label(status_frame, text="Screen:").grid(
+            row=2, column=0, sticky=tk.W, pady=5
+        )
+        self.screen_status_var = tk.StringVar(value="Ready")
+        self.screen_status_label = ttk.Label(
+            status_frame, textvariable=self.screen_status_var
+        )
+        self.screen_status_label.grid(row=2, column=1, sticky=tk.W, pady=5)
         self.log_text = tk.Text(status_frame, height=6, width=50, wrap=tk.WORD)
         self.log_text.grid(
-            row=2, column=0, columnspan=2, sticky=tk.W + tk.E + tk.N + tk.S, pady=5
+            row=3, column=0, columnspan=2, sticky=tk.W + tk.E + tk.N + tk.S, pady=5
         )
         scrollbar = ttk.Scrollbar(status_frame, command=self.log_text.yview)
-        scrollbar.grid(row=2, column=2, sticky=tk.N + tk.S)
+        scrollbar.grid(row=3, column=2, sticky=tk.N + tk.S)
         self.log_text.config(yscrollcommand=scrollbar.set)
-        status_frame.rowconfigure(2, weight=1)
+        status_frame.rowconfigure(3, weight=1)
         status_frame.columnconfigure(1, weight=1)
 
     def create_control_buttons(self, parent: tk.Widget) -> None:
@@ -263,8 +328,21 @@ class RecorderApp(tk.Tk):
             video_frame, text="Toggle Preview", command=self.toggle_preview
         )
         self.preview_btn.pack(fill=tk.X, pady=2)
+        screen_frame = ttk.LabelFrame(btn_frame, text="Screen", padding="10")
+        screen_frame.grid(row=0, column=2, padx=5, sticky=tk.W + tk.E)
+        self.start_screen_btn = ttk.Button(
+            screen_frame, text="Start Recording", command=self.start_screen
+        )
+        self.start_screen_btn.pack(fill=tk.X, pady=2)
+        self.stop_screen_btn = ttk.Button(
+            screen_frame,
+            text="Stop Recording",
+            command=self.stop_screen,
+            state=tk.DISABLED,
+        )
+        self.stop_screen_btn.pack(fill=tk.X, pady=2)
         both_frame = ttk.LabelFrame(btn_frame, text="Both", padding="10")
-        both_frame.grid(row=0, column=2, padx=5, sticky=tk.W + tk.E)
+        both_frame.grid(row=0, column=3, padx=5, sticky=tk.W + tk.E)
         self.start_both_btn = ttk.Button(
             both_frame, text="Start Both", command=self.start_both
         )
@@ -276,6 +354,7 @@ class RecorderApp(tk.Tk):
         btn_frame.columnconfigure(0, weight=1)
         btn_frame.columnconfigure(1, weight=1)
         btn_frame.columnconfigure(2, weight=1)
+        btn_frame.columnconfigure(3, weight=1)
 
     def browse_folder(self) -> None:
         """Open a folder dialog to select the destination folder."""
@@ -402,6 +481,103 @@ class RecorderApp(tk.Tk):
                 "Error", "Failed to stop video recording. Check the log file."
             )
 
+    def start_screen(self) -> None:
+        """Start screen recording with the selected monitor."""
+        subject_id = self.subject_id_var.get().strip()
+        destination = self.destination_var.get().strip()
+        monitor_index = self.screen_devices_map.get(self.screen_device_var.get())
+        if not subject_id or not destination:
+            messagebox.showwarning(
+                "Missing Information",
+                "Please enter both Subject ID and Destination folder.",
+            )
+            return
+        if monitor_index is None:
+            messagebox.showerror("Error", "Please select an available screen")
+            return
+
+        self.start_screen_btn.config(state=tk.DISABLED)
+        self._reported_screen_error = None
+        self.screen_status_var.set("Preparing...")
+        self.log_message("Starting screen recording...")
+
+        def _start() -> None:
+            success = self.core.start_screen_recording(
+                subject_id, destination, monitor_index
+            )
+            self.after(0, lambda: self._on_screen_started(success, subject_id))
+
+        threading.Thread(target=_start, daemon=True).start()
+
+    def _on_screen_started(self, success: bool, subject_id: str) -> None:
+        if success:
+            self.screen_status_var.set("Recording...")
+            self.stop_screen_btn.config(state=tk.NORMAL)
+            self.log_message(f"Started screen recording for {subject_id}")
+        else:
+            self.screen_status_var.set(
+                "Failed" if self.core.screen_recorder.last_error else "Ready"
+            )
+            self.start_screen_btn.config(state=tk.NORMAL)
+            messagebox.showerror(
+                "Error", "Failed to start screen recording. Check the log file."
+            )
+
+    def stop_screen(self) -> None:
+        """Stop the screen recording and finalize its output files."""
+        if not self.core.screen_active:
+            self.log_message("No screen recording in progress")
+            return
+
+        self.stop_screen_btn.config(state=tk.DISABLED)
+        self.screen_status_var.set("Finalizing...")
+        self.log_message("Stopping screen recording...")
+
+        def _stop() -> None:
+            success = self.core.stop_screen_recording()
+            self.after(0, lambda: self._on_screen_stopped(success))
+
+        threading.Thread(target=_stop, daemon=True).start()
+
+    def _on_screen_stopped(self, success: bool) -> None:
+        if success:
+            self.screen_status_var.set("Ready")
+            self.start_screen_btn.config(state=tk.NORMAL)
+            self.stop_screen_btn.config(state=tk.DISABLED)
+            self.log_message("Stopped screen recording")
+        else:
+            self.screen_status_var.set("Failed")
+            self.start_screen_btn.config(
+                state=tk.DISABLED if self.core.screen_active else tk.NORMAL
+            )
+            self.stop_screen_btn.config(
+                state=tk.NORMAL if self.core.screen_active else tk.DISABLED
+            )
+            messagebox.showerror(
+                "Error", "Failed to finalize screen recording. Check the log file."
+            )
+
+    def update_screen_status(self) -> None:
+        """Refresh screen recording state and report asynchronous capture failures."""
+        recorder = self.core.screen_recorder
+        if recorder.recording:
+            self.screen_status_var.set("Recording...")
+            self.stop_screen_btn.config(state=tk.NORMAL)
+        elif recorder.active:
+            self.screen_status_var.set("Finalizing...")
+        elif recorder.last_error:
+            self.screen_status_var.set("Failed")
+            if getattr(self, "_reported_screen_error", None) != recorder.last_error:
+                self.log_message(f"Screen recording failed: {recorder.last_error}")
+                self._reported_screen_error = recorder.last_error
+            self.start_screen_btn.config(state=tk.NORMAL)
+            self.stop_screen_btn.config(state=tk.DISABLED)
+        elif self.screen_status_var.get() in ("Recording...", "Finalizing..."):
+            self.screen_status_var.set("Ready")
+            self.start_screen_btn.config(state=tk.NORMAL)
+            self.stop_screen_btn.config(state=tk.DISABLED)
+        self.after(500, self.update_screen_status)
+
     def start_both(self) -> None:
         """Start audio and video recording with the selected settings."""
         subject_id = self.subject_id_var.get().strip()
@@ -467,7 +643,7 @@ class RecorderApp(tk.Tk):
             self.stop_video_btn.config(state=tk.DISABLED)
             self.start_both_btn.config(state=tk.NORMAL)
             self.stop_both_btn.config(state=tk.DISABLED)
-            self.log_message("Stopped all active recordings")
+            self.log_message("Stopped audio and video recordings")
         else:
             messagebox.showerror(
                 "Error", "Failed to stop recordings. Check the log file."
@@ -517,7 +693,11 @@ class RecorderApp(tk.Tk):
 
     def on_close(self) -> None:
         """Handle window close event."""
-        if self.core.recording_audio or self.core.recording_video:
+        if (
+            self.core.recording_audio
+            or self.core.recording_video
+            or self.core.screen_active
+        ):
             confirm = messagebox.askyesno(
                 "Confirm Exit", "Recording is in progress. Stop recording and exit?"
             )
@@ -526,13 +706,44 @@ class RecorderApp(tk.Tk):
                     self.core.stop_audio_recording()
                 if self.core.recording_video:
                     self.core.stop_video_recording()
-                if hasattr(self.core, "video_recorder") and self.core.video_recorder:
-                    self.core.video_recorder.stop_preview()
-                self.destroy()
+                if not self.core.screen_active:
+                    self._close_window()
+                    return
+
+                self.start_audio_btn.config(state=tk.DISABLED)
+                self.start_video_btn.config(state=tk.DISABLED)
+                self.start_screen_btn.config(state=tk.DISABLED)
+                self.start_both_btn.config(state=tk.DISABLED)
+
+                def _stop() -> None:
+                    success = self.core.stop_screen_recording()
+                    self.after(0, lambda: self._on_close_stopped(success))
+
+                threading.Thread(target=_stop, daemon=True).start()
         else:
-            if hasattr(self.core, "video_recorder") and self.core.video_recorder:
-                self.core.video_recorder.stop_preview()
-            self.destroy()
+            self._close_window()
+
+    def _on_close_stopped(self, success: bool) -> None:
+        if success:
+            self._close_window()
+        else:
+            messagebox.showerror(
+                "Error", "Failed to stop screen recording. Check the log file."
+            )
+            self.start_audio_btn.config(state=tk.NORMAL)
+            self.start_video_btn.config(state=tk.NORMAL)
+            self.start_screen_btn.config(
+                state=tk.DISABLED if self.core.screen_active else tk.NORMAL
+            )
+            self.stop_screen_btn.config(
+                state=tk.NORMAL if self.core.screen_active else tk.DISABLED
+            )
+            self.start_both_btn.config(state=tk.NORMAL)
+
+    def _close_window(self) -> None:
+        """Stop the video preview before closing the application window."""
+        self.core.video_recorder.stop_preview()
+        self.destroy()
 
 
 # For testing

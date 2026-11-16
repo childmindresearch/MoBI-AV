@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -376,10 +377,11 @@ class ScreenRecorder:
         process = None
         last_timestamp = None
         try:
-            with (
-                tempfile.TemporaryFile() as errors,
-                self._csv_path.open("w", newline="", encoding="utf-8") as sidecar,
-            ):
+            with ExitStack() as stack:
+                errors = stack.enter_context(tempfile.TemporaryFile())
+                sidecar = stack.enter_context(
+                    self._csv_path.open("w", newline="", encoding="utf-8")
+                )
                 rows = csv.writer(sidecar)
                 rows.writerow(
                     [

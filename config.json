@@ -3,6 +3,7 @@
   "default_destination": "",
   "audio_filename_suffix": "_audio",
   "video_filename_suffix": "_video",
+  "screen_filename_suffix": "_screen",
   "audio_settings": {
     "use_device_defaults": true,
     "device_name": "Yeti",
@@ -21,9 +22,17 @@
     "codec": "mp4v",
     "show_timestamp": false
   },
+  "screen_settings": {
+    "monitor_index": 1,
+    "fps": 30,
+    "queue_size": 8,
+    "startup_timeout": 15,
+    "shutdown_timeout": 30
+  },
   "lsl_settings": {
     "audio_stream_name": "AudioMarkers",
     "video_stream_name": "VideoMarkers",
+    "screen_stream_name": "ScreenMarkers",
     "marker_sampling_rate": 0
   }
 }

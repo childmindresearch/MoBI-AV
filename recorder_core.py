@@ -1,6 +1,6 @@
-"""Core recorder module that coordinates audio and video recording.
+"""Core recorder module that coordinates audio, video, and screen recording.
 
-This module provides a unified interface for controlling audio and video
+This module provides a unified interface for controlling audio, video, and screen
 recording, handling configuration, and synchronizing recordings.
 """
 
@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional, Union
 
 from lsl_utils import MarkerStreams
 from audio_recorder import AudioRecorder
+from screen_recorder import ScreenRecorder
 from video_recorder import VideoRecorder
 
 
@@ -21,14 +22,16 @@ class RecorderCore:
 
     Attributes:
         config: Dictionary of configuration settings.
-        marker_streams: LSL marker streams for audio and video.
+        marker_streams: LSL marker streams for audio, video, and screen recording.
         audio_recorder: AudioRecorder instance.
+        screen_recorder: ScreenRecorder instance.
         video_recorder: VideoRecorder instance.
     """
 
     config: Dict[str, Any]
     marker_streams: Any
     audio_recorder: Any
+    screen_recorder: ScreenRecorder
     video_recorder: Any
 
     def __init__(self) -> None:
@@ -40,6 +43,9 @@ class RecorderCore:
         )
         self.video_recorder = VideoRecorder(
             self.config["video_settings"], self.marker_streams
+        )
+        self.screen_recorder = ScreenRecorder(
+            self.config["screen_settings"], self.marker_streams
         )
 
     def load_config(self) -> None:
@@ -66,6 +72,21 @@ class RecorderCore:
                     os.path.expanduser("~"), "Documents"
                 )
 
+            self.config.setdefault("screen_filename_suffix", "_screen")
+            screen_defaults = {
+                "monitor_index": 1,
+                "fps": 30,
+                "queue_size": 8,
+                "startup_timeout": 15,
+                "shutdown_timeout": 30,
+            }
+            self.config.setdefault("screen_settings", {})
+            for key, value in screen_defaults.items():
+                self.config["screen_settings"].setdefault(key, value)
+            self.config.setdefault("lsl_settings", {}).setdefault(
+                "screen_stream_name", "ScreenMarkers"
+            )
+
             logging.info("Configuration loaded successfully")
         except Exception as e:
             logging.error(f"Failed to load configuration: {e}")
@@ -75,6 +96,7 @@ class RecorderCore:
                 "default_destination": "recordings",
                 "audio_filename_suffix": "_audio",
                 "video_filename_suffix": "_video",
+                "screen_filename_suffix": "_screen",
                 "audio_settings": {
                     "device_name": "Default",
                     "host_api": [0, 1, 2, 3],
@@ -95,9 +117,17 @@ class RecorderCore:
                     "filename_suffix": "_video",
                     "show_timestamp": False,
                 },
+                "screen_settings": {
+                    "monitor_index": 1,
+                    "fps": 30,
+                    "queue_size": 8,
+                    "startup_timeout": 15,
+                    "shutdown_timeout": 30,
+                },
                 "lsl_settings": {
                     "audio_stream_name": "AudioMarkers",
                     "video_stream_name": "VideoMarkers",
+                    "screen_stream_name": "ScreenMarkers",
                     "marker_sampling_rate": 0,
                 },
             }
@@ -124,6 +154,24 @@ class RecorderCore:
             self.video_recorder.recording if hasattr(self, "video_recorder") else False
         )
 
+    @property
+    def recording_screen(self) -> bool:
+        """Check if screen recording is in progress.
+
+        Returns:
+            Boolean indicating if screen capture is currently recording.
+        """
+        return self.screen_recorder.recording
+
+    @property
+    def screen_active(self) -> bool:
+        """Check if screen recording still owns capture or encoder resources.
+
+        Returns:
+            Boolean indicating if screen recording is preparing, recording, or finalizing.
+        """
+        return self.screen_recorder.active
+
     def get_available_audio_devices(self) -> List[Dict[str, Any]]:
         """Get list of available audio devices.
 
@@ -139,6 +187,14 @@ class RecorderCore:
             List of dictionaries containing video device information.
         """
         return self.video_recorder.get_available_devices()
+
+    def get_available_screens(self) -> List[Dict[str, Any]]:
+        """Get the available screen capture targets.
+
+        Returns:
+            List of screen dictionaries containing monitor indices, names, and bounds.
+        """
+        return self.screen_recorder.get_available_screens()
 
     def start_audio_recording(
         self,
@@ -200,6 +256,50 @@ class RecorderCore:
         """
         return self.video_recorder.stop_recording()
 
+    def start_screen_recording(
+        self,
+        subject_id: str,
+        destination: str,
+        monitor_index: Optional[int] = None,
+        pre_initialize: bool = False,
+        filename: Optional[str] = None,
+    ) -> bool:
+        """Start screen recording or prepare it for a synchronized start.
+
+        Args:
+            subject_id: Identifier for the recording subject.
+            destination: Directory path where recording files will be saved.
+            monitor_index: Screen index to capture, or None to use configured default.
+            pre_initialize: If True, prepare capture without starting recording.
+            filename: Optional MP4 filename to use instead of generating one.
+
+        Returns:
+            Boolean indicating success or failure.
+        """
+        if monitor_index is None:
+            monitor_index = self.config["screen_settings"]["monitor_index"]
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            suffix = self.config["screen_filename_suffix"]
+            filename = os.path.join(
+                destination, f"{subject_id}{suffix}_{timestamp}.mp4"
+            )
+        return self.screen_recorder.start_recording(
+            subject_id,
+            destination,
+            monitor_index,
+            pre_initialize,
+            filename,
+        )
+
+    def stop_screen_recording(self) -> bool:
+        """Stop screen capture and finalize its video and timing files.
+
+        Returns:
+            Boolean indicating successful capture and encoder finalization.
+        """
+        return self.screen_recorder.stop_recording()
+
     def start_pre_initialized_audio(self, subject_id: str) -> bool:
         """Start a pre-initialized audio recording.
 
@@ -221,6 +321,17 @@ class RecorderCore:
             Boolean indicating success or failure.
         """
         return self.video_recorder.start_pre_initialized(subject_id)
+
+    def start_pre_initialized_screen(self, subject_id: str) -> bool:
+        """Start a pre-initialized screen recording.
+
+        Args:
+            subject_id: Identifier for the recording subject.
+
+        Returns:
+            Boolean indicating success or failure.
+        """
+        return self.screen_recorder.start_pre_initialized(subject_id)
 
     def start_both_recordings(
         self,
@@ -336,5 +447,4 @@ class RecorderCore:
             video_success = self.stop_video_recording()
             if not video_success:
                 success = False
-
         return success
