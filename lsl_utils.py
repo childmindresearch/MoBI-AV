@@ -1,4 +1,4 @@
-"""LSL utilities module for audio/video recorder.
+"""LSL utilities module for audio, camera video, and screen recordings.
 
 This module provides utilities for Lab Streaming Layer (LSL) integration,
 including marker stream creation and standardized marker formatting.
@@ -11,15 +11,17 @@ from typing import Any, Dict, Optional
 
 
 class MarkerStreams:
-    """Creates and manages LSL marker streams for audio and video.
+    """Creates and manages LSL marker streams for all recording sources.
 
     Attributes:
         audio_marker_outlet: StreamOutlet for audio recording markers.
         video_marker_outlet: StreamOutlet for video recording markers.
+        screen_marker_outlet: StreamOutlet for screen recording markers.
     """
 
     audio_marker_outlet: StreamOutlet
     video_marker_outlet: StreamOutlet
+    screen_marker_outlet: StreamOutlet
 
     def __init__(self, config: Dict[str, Any]) -> None:
         """Initialize LSL marker streams based on provided configuration.
@@ -58,6 +60,16 @@ class MarkerStreams:
                 "nominal_fps", str(config["video_settings"]["fps"])
             )
             self.video_marker_outlet = StreamOutlet(video_info)
+
+            screen_info = StreamInfo(
+                lsl_config.get("screen_stream_name", "ScreenMarkers"),
+                "Markers",
+                1,
+                marker_rate,
+                "string",
+                f"screen_markers_{socket.gethostname()}",
+            )
+            self.screen_marker_outlet = StreamOutlet(screen_info)
             logging.info("LSL outlets created successfully")
         except Exception as e:
             logging.error(f"Failed to create LSL outlets: {e}")
@@ -130,3 +142,13 @@ class MarkerStreams:
         """
         marker = f"VIDEO_STOP,{filename},{timestamp}"
         self.video_marker_outlet.push_sample([marker])
+
+    def send_screen_start_marker(self, subject_id: str, timestamp: float) -> None:
+        """Send a screen recording start marker at the first captured frame."""
+        self.screen_marker_outlet.push_sample(
+            [f"SCREEN_RECORD_START:{subject_id}"], timestamp
+        )
+
+    def send_screen_stop_marker(self, timestamp: float) -> None:
+        """Send a screen recording stop marker at the final captured frame."""
+        self.screen_marker_outlet.push_sample(["SCREEN_RECORD_STOP"], timestamp)

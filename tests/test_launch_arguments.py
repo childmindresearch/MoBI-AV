@@ -29,6 +29,7 @@ def recorder_core() -> Iterator[Mock]:
     )
     core.get_available_audio_devices.return_value = []
     core.get_available_video_devices.return_value = []
+    core.get_available_screens.return_value = []
 
     def start_worker(target: Callable[[], None], daemon: bool = False) -> Mock:
         worker = Mock()
@@ -285,6 +286,40 @@ def test_launch_values_override_defaults_without_changing_config(
     recorder_core.get_available_video_devices.assert_called_once_with()
 
 
+def test_screen_start_uses_selected_monitor(recorder_core: Mock) -> None:
+    app = gui.RecorderApp()
+    app.screen_devices_map = {"Monitor 1": 1}
+    app.screen_device_var.set("Monitor 1")
+    app.screen_status_var = Mock()
+    app.start_screen_btn = Mock()
+    app.stop_screen_btn = Mock()
+    recorder_core.start_screen_recording.return_value = True
+
+    app.start_screen()
+
+    recorder_core.start_screen_recording.assert_called_once_with(
+        "configured-subject", "/configured/destination", 1
+    )
+    app.screen_status_var.set.assert_called_once_with("Recording...")
+    app.stop_screen_btn.config.assert_called_once_with(state=tk.NORMAL)
+
+
+def test_screen_stop_uses_core_and_restores_controls(recorder_core: Mock) -> None:
+    app = gui.RecorderApp()
+    app.screen_status_var = Mock()
+    app.start_screen_btn = Mock()
+    app.stop_screen_btn = Mock()
+    recorder_core.recording_screen = True
+    recorder_core.stop_screen_recording.return_value = True
+
+    app.stop_screen()
+
+    recorder_core.stop_screen_recording.assert_called_once_with()
+    app.screen_status_var.set.assert_called_once_with("Ready")
+    app.start_screen_btn.config.assert_called_once_with(state=tk.NORMAL)
+    app.stop_screen_btn.config.assert_called_once_with(state=tk.DISABLED)
+
+
 @pytest.mark.parametrize(
     "subject_id, destination",
     [("subject001", None), (None, "recordings/subject001")],
@@ -359,5 +394,6 @@ def test_all_recording_modes_use_the_current_field_values(
     recorder_core.start_both_recordings.assert_called_once_with(
         "subject002", "recordings/subject002", [4], 2
     )
+    recorder_core.start_screen_recording.assert_not_called()
     assert app.audio_status_var.get() == "Recording..."
     assert app.video_status_var.get() == "Recording..."

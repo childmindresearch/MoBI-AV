@@ -2,3 +2,5 @@ pyaudio
 pylsl
 numpy
 opencv-python
+mss
+imageio[ffmpeg]

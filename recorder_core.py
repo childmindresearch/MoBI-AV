@@ -1,7 +1,7 @@
-"""Core recorder module that coordinates audio and video recording.
+"""Core recorder module that coordinates audio, video, and screen recording.
 
-This module provides a unified interface for controlling audio and video
-recording, handling configuration, and synchronizing recordings.
+This module provides a unified interface for controlling recording devices,
+handling configuration, and synchronizing recordings.
 """
 
 import os
@@ -12,23 +12,26 @@ from typing import Dict, Any, List, Optional, Union
 
 from lsl_utils import MarkerStreams
 from audio_recorder import AudioRecorder
+from screen_recorder import ScreenRecorder
 from video_recorder import VideoRecorder
 
 
 class RecorderCore:
-    """Core class that coordinates audio and video recording functionality.
+    """Core class that coordinates audio, video, and screen recording.
 
     Attributes:
         config: Dictionary of configuration settings.
         marker_streams: LSL marker streams for audio and video.
         audio_recorder: AudioRecorder instance.
         video_recorder: VideoRecorder instance.
+        screen_recorder: ScreenRecorder instance.
     """
 
     config: Dict[str, Any]
     marker_streams: Any
     audio_recorder: Any
     video_recorder: Any
+    screen_recorder: Any
 
     def __init__(self) -> None:
         """Initialize the RecorderCore with configuration and components."""
@@ -39,6 +42,9 @@ class RecorderCore:
         )
         self.video_recorder = VideoRecorder(
             self.config["video_settings"], self.marker_streams
+        )
+        self.screen_recorder = ScreenRecorder(
+            self.config.get("screen_settings", {"fps": 30}), self.marker_streams
         )
 
     def load_config(self) -> None:
@@ -84,9 +90,11 @@ class RecorderCore:
                     "filename_suffix": "_video",
                     "show_timestamp": False,
                 },
+                "screen_settings": {"fps": 30},
                 "lsl_settings": {
                     "audio_stream_name": "AudioMarkers",
                     "video_stream_name": "VideoMarkers",
+                    "screen_stream_name": "ScreenMarkers",
                     "marker_sampling_rate": 0,
                 },
             }
@@ -113,6 +121,15 @@ class RecorderCore:
             self.video_recorder.recording if hasattr(self, "video_recorder") else False
         )
 
+    @property
+    def recording_screen(self) -> bool:
+        """Check if screen recording is in progress."""
+        return (
+            self.screen_recorder.active
+            if hasattr(self, "screen_recorder")
+            else False
+        )
+
     def get_available_audio_devices(self) -> List[Dict[str, Any]]:
         """Get list of available audio devices.
 
@@ -128,6 +145,10 @@ class RecorderCore:
             List of dictionaries containing video device information.
         """
         return self.video_recorder.get_available_devices()
+
+    def get_available_screens(self) -> List[Dict[str, Any]]:
+        """Get available screen capture targets."""
+        return self.screen_recorder.get_available_screens()
 
     def start_audio_recording(
         self,
@@ -188,6 +209,21 @@ class RecorderCore:
             Boolean indicating success or failure.
         """
         return self.video_recorder.stop_recording()
+
+    def start_screen_recording(
+        self,
+        subject_id: str,
+        destination: str,
+        monitor_index: int,
+    ) -> bool:
+        """Start recording the selected screen."""
+        return self.screen_recorder.start_recording(
+            subject_id, destination, monitor_index
+        )
+
+    def stop_screen_recording(self) -> bool:
+        """Stop screen recording and finish writing the video file."""
+        return self.screen_recorder.stop_recording()
 
     def start_pre_initialized_audio(self, subject_id: str) -> bool:
         """Start a pre-initialized audio recording.

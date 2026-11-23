@@ -27,8 +27,10 @@ launches the GUI.
 Then:
 
 1. Select your audio and video devices.
-2. Enter or confirm the subject ID and destination folder.
-3. Click "Start Recording" to begin capturing.
+2. Select a screen to capture if screen recording is needed.
+3. Enter or confirm the subject ID and destination folder.
+4. Use the Screen controls to start and stop screen recording independently.
+   "Start Both" continues to control audio and camera recording only.
 
 ### Optional launch arguments
 
@@ -55,6 +57,7 @@ Use `uv run mobi-av --help` to see the available arguments.
 ## Features
 
 - Record audio and video separately or together
+- Record a selected monitor or the combined desktop
 - Select from available audio and video input devices
 - Configurable recording parameters
 - Visual status indicators
@@ -63,10 +66,11 @@ Use `uv run mobi-av --help` to see the available arguments.
 
 This application features Lab Streaming Layer (LSL) integration for synchronizing recordings with other data streams:
 
-- Automatically creates two LSL marker streams (audio and video) when the application launches
+- Automatically creates LSL marker streams for audio, camera video, and screen recordings when the application launches
 - Streams event markers for recording start/stop events with detailed metadata
 - Audio markers include: subject ID, filename, timestamp, channels, and sample rate
 - Video markers include: subject ID, filename, timestamp, precise ISO timestamp, and camera-adjusted writer FPS
+- Screen markers identify the subject at the first written frame and mark the final written frame
 - Marker stream names and marker sampling rates are configurable in [config.json](config.json)
 - Video stream metadata includes the intended recording FPS from `video_settings.fps`
 - Useful for time-synchronizing recordings with other experimental data sources
@@ -79,6 +83,7 @@ In the `config.json` file, you can adjust the LSL settings:
 "lsl_settings": {
   "audio_stream_name": "AudioMarkers",  
   "video_stream_name": "VideoMarkers",
+  "screen_stream_name": "ScreenMarkers",
   "marker_sampling_rate": 0
 }
 ```
@@ -116,6 +121,7 @@ Edit [config.json](config.json) in the repository directory to customize:
 - Recording destination
 - Preferred default Audio device
 - Video resolution and frame rate
+- Screen recording frame rate
 
 Note: The `device_name` and `preferred_sample_rate` in the config will be used to pre-select the matching audio device in the dropdown menu.
 

@@ -21,9 +21,13 @@
     "codec": "mp4v",
     "show_timestamp": false
   },
+  "screen_settings": {
+    "fps": 30
+  },
   "lsl_settings": {
     "audio_stream_name": "AudioMarkers",
     "video_stream_name": "VideoMarkers",
+    "screen_stream_name": "ScreenMarkers",
     "marker_sampling_rate": 0
   }
 }
